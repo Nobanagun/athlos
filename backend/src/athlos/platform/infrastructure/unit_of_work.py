@@ -1,5 +1,7 @@
 """SQLAlchemy-backed Unit of Work."""
 
+from typing import Any
+
 from sqlalchemy.orm import Session
 
 from athlos.platform.application.unit_of_work import UnitOfWork
@@ -51,7 +53,7 @@ class SqlAlchemyUnitOfWork(UnitOfWork):
     def rollback(self) -> None:
         self.session.rollback()
 
-    def _tracked_aggregates(self) -> list[AggregateRoot]:  # type: ignore[type-arg]
+    def _tracked_aggregates(self) -> list[AggregateRoot[Any]]:
         """Aggregates with potentially pending events in the current session.
 
         Uses `session.new | session.dirty | session.deleted`: sufficient

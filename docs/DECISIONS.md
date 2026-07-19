@@ -344,7 +344,8 @@ un PostgreSQL real, pendiente del resto de la Fase 1.
 
 **Consecuencias**: 19 tests unitarios nuevos en
 `backend/tests/unit/platform/`, todos en verde; Ruff, mypy (`strict`, sin
-excepciones nuevas) y `pre-commit` sin incidencias. Se añadieron
+`type: ignore` ni overrides de configuración) y `pre-commit` sin
+incidencias. Se añadieron
 `backend/tests/__init__.py`, `backend/tests/unit/__init__.py` y
 `backend/tests/unit/platform/__init__.py` (no estaban en el plan
 original) para que mypy pudiera distinguir los dos `conftest.py` del
