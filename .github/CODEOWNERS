@@ -1,0 +1,5 @@
+# Propietario por defecto de todo el repositorio
+* @Nobanagun
+
+# Protege explícitamente este propio archivo de CODEOWNERS
+/.github/CODEOWNERS @Nobanagun
