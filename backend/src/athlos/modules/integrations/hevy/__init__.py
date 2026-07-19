@@ -1,0 +1,1 @@
+"""Hevy adapter (placeholder)."""

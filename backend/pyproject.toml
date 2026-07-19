@@ -1,0 +1,18 @@
+[project]
+name = "athlos-backend"
+version = "0.1.0"
+description = "Athlos backend - modular monolith (DDD) for multi-sport training, recovery, planning and AI coaching."
+requires-python = ">=3.13"
+readme = "README.md"
+
+# Fase de scaffolding: no se han instalado dependencias todavia.
+# Candidatas para la siguiente fase (sin version fijada aun):
+#   fastapi, uvicorn, pydantic, sqlalchemy, alembic, asyncpg, redis
+dependencies = []
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/athlos"]

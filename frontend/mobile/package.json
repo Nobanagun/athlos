@@ -1,0 +1,8 @@
+{
+  "name": "athlos-mobile",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Athlos mobile app (React Native + Expo + TypeScript), offline-first.",
+  "dependencies": {},
+  "devDependencies": {}
+}

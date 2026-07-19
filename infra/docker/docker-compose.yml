@@ -1,0 +1,20 @@
+# Athlos - entorno de desarrollo local (placeholder, fase 2)
+#
+# Los servicios se anadiran cuando se decida el stack de persistencia y
+# las dependencias del backend. Ejemplo orientativo (no activo todavia):
+#
+# services:
+#   backend:
+#     build: ../../backend
+#     ports:
+#       - "8000:8000"
+#   postgres:
+#     image: postgres:16
+#     environment:
+#       POSTGRES_DB: athlos
+#       POSTGRES_USER: athlos
+#       POSTGRES_PASSWORD: athlos
+#   redis:
+#     image: redis:7
+
+services: {}

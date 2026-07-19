@@ -1,0 +1,10 @@
+{
+  "expo": {
+    "name": "Athlos",
+    "slug": "athlos",
+    "scheme": "athlos",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "platforms": ["ios", "android"]
+  }
+}

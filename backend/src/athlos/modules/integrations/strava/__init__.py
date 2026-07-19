@@ -1,0 +1,1 @@
+"""Strava adapter (placeholder)."""
