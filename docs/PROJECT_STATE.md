@@ -8,12 +8,14 @@
 
 ## Estado actual
 
-Fase de **estructura y fundamentos**. Existe el andamiaje completo del
-monorepo (backend, frontend, docs, infra, tests, scripts), la licencia
-propietaria, el repositorio remoto privado en GitHub y la documentación
-base de arquitectura y proceso. **No hay ninguna funcionalidad de negocio
-implementada todavía**: ni modelos de dominio con lógica, ni endpoints de
-API, ni pantallas de la app móvil, ni dependencias instaladas.
+Fase 1 en curso — **bootstrap del backend completado** (PR #1,
+`feature/bootstrap-backend`). El backend tiene ahora un entorno de
+desarrollo real: dependencias instaladas y fijadas con `uv`, linting
+(Ruff), type checking estricto (mypy) y tests (pytest) configurados y en
+verde, y hooks de `pre-commit` funcionando. **Sigue sin haber ninguna
+funcionalidad de negocio implementada**: ni modelos de dominio con
+lógica, ni endpoints de negocio (solo un `GET /health` de verificación),
+ni migraciones reales, ni pantallas de la app móvil.
 
 Ver [`ROADMAP.md`](ROADMAP.md) para las fases siguientes y
 [`docs/agent/OPEN_QUESTIONS.md`](agent/OPEN_QUESTIONS.md) para
@@ -23,7 +25,7 @@ limitaciones conocidas (protección de rama pendiente de GitHub Pro).
 
 | Área | Tecnología | Estado |
 |---|---|---|
-| Backend | Python + FastAPI | Elegido, sin dependencias instaladas |
+| Backend | Python 3.13 + FastAPI 0.139.2 (uv) | Dependencias instaladas y fijadas, sin lógica de negocio |
 | Frontend móvil (principal) | React Native + Expo + TypeScript + Expo Router | Elegido, sin bootstrap real todavía |
 | Frontend web (dashboard/admin) | Next.js + TypeScript | Elegido, **no implementado**, fase futura |
 | Persistencia local (mobile, offline-first) | Por decidir (SQLite / WatermelonDB / Realm) | Pendiente |
@@ -69,10 +71,26 @@ athlos/
 
 - Estructura de carpetas de los 8 módulos (bounded contexts) creada, cada
   uno con capas `domain/application/infrastructure/interfaces`.
-- Todos los archivos `.py` son **placeholders con docstring**, sin
-  imports ni lógica (no hay dependencias instaladas todavía).
-- `pyproject.toml` declara metadata del proyecto pero `dependencies = []`.
-- Sin base de datos, sin migraciones, sin ORM configurado.
+- Todos los archivos `.py` de `modules/` y `platform/` siguen siendo
+  **placeholders con docstring**, sin imports ni lógica — el bootstrap no
+  ha tocado el dominio.
+- Gestor de dependencias: `uv`, con `.python-version` (3.13) y `uv.lock`
+  commiteado. `pyproject.toml` declara dependencias reales y fijadas
+  (`fastapi`, `uvicorn`, `sqlalchemy`, `alembic`, `psycopg`, `redis`,
+  `pydantic` en runtime; `pytest`, `httpx2`, `ruff`, `mypy`, `pre-commit`
+  en dev — ver `DECISIONS.md` para la justificación de cada versión).
+- `backend/src/athlos/api/main.py` expone una instancia real de FastAPI
+  con un único endpoint `GET /health` (verificación de arranque, no
+  negocio).
+- Ruff, mypy (modo `strict`, sin excepciones) y pytest configurados en
+  `pyproject.toml` y en verde; `pre-commit` instalado y validado contra
+  un `git commit` real.
+- Alembic configurado (`alembic.ini`, `migrations/env.py`,
+  `script.py.mako`) pero `target_metadata = None` — sin ninguna migración
+  real todavía, a la espera del shared kernel (Fase 2).
+- Sin base de datos ni Redis en ejecución — los drivers están instalados
+  pero no hay ningún servicio real levantado (eso es Fase 1, sección de
+  infraestructura Docker, todavía pendiente).
 
 ### Frontend
 
@@ -96,8 +114,11 @@ athlos/
 
 ## Próximo objetivo
 
-Bootstrap real de dependencias (backend y mobile) y construcción del
-shared kernel (`platform/`: Entity, AggregateRoot, Value Object, Unit of
-Work, Transactional Outbox) como base para implementar el primer módulo
-de negocio de extremo a extremo. Ver Fase 1 y Fase 2 en
+Bootstrap del backend completado; queda pendiente el resto de la Fase 1
+(CI en `.github/workflows/`, servicios reales en
+`infra/docker/docker-compose.yml`, bootstrap real de la app móvil con
+Expo) y, en paralelo o a continuación, la Fase 2: construcción del shared
+kernel (`platform/`: Entity, AggregateRoot, Value Object, Unit of Work,
+Transactional Outbox) como base para implementar el primer módulo de
+negocio de extremo a extremo. Ver Fase 1 y Fase 2 en
 [`ROADMAP.md`](ROADMAP.md).
