@@ -205,3 +205,72 @@ desde la línea de comandos (creación del repo, gestión de rulesets).
 **Consecuencias**: a diferencia del cask de Docker, la instalación de la
 formula `gh` no requirió `sudo` (el prefijo `/opt/homebrew/bin` pertenece
 al usuario, no a `root`).
+
+---
+
+## 2026-07-19 — Migración de `httpx` a `httpx2` (dependencia de desarrollo de `TestClient`)
+
+**Contexto**: al ejecutar `pytest` durante el bootstrap del backend
+(Fase 1), apareció `StarletteDeprecationWarning: Using httpx with
+starlette.testclient is deprecated; install httpx2 instead`. Se investigó
+antes de actuar: el paquete original `httpx` no tiene ningún release
+estable desde diciembre de 2024 (solo previews `1.0.dev1/2/3` hasta
+septiembre de 2025); Pydantic asumió el mantenimiento bajo el nombre
+`httpx2` en mayo de 2026 como continuación directa ("the '2' is a
+versioning marker for the new stewardship, not a fundamental rewrite",
+[github.com/pydantic/httpx2](https://github.com/pydantic/httpx2)).
+Starlette (`testclient.py`, código fuente instalado) intenta `import
+httpx2 as httpx` primero y solo cae a `httpx` con warning si `httpx2` no
+está instalado. Se comprobó en `uv.lock` que `httpx` era **únicamente**
+una dependencia directa nuestra en `[dependency-groups] dev` — ningún
+paquete instalado (FastAPI, Starlette, Uvicorn) lo declaraba como
+dependencia propia.
+
+**Decisión**: sustituir `httpx~=0.28.1` por `httpx2~=2.7.0` en
+`[dependency-groups] dev` de `backend/pyproject.toml`, sin mantener
+ambas. No se requirió ningún cambio de código: `fastapi.testclient` y
+`backend/tests/unit/test_bootstrap.py` solo importan `TestClient`, y
+Starlette resuelve `httpx2`/`httpx` internamente sin exponer el detalle.
+
+**Alternativas consideradas**:
+- Mantener `httpx` y aceptar el warning permanentemente — descartado: no
+  hay releases estables desde hace 19 meses, por lo que futuras
+  vulnerabilidades no tendrían parche garantizado en el paquete original.
+- Declarar ambas (`httpx` y `httpx2`) "por seguridad" — descartado por la
+  propia regla de `CONTRIBUTING.md` (no mantener dos dependencias
+  directas para el mismo propósito sin una razón técnica demostrada; aquí
+  no la hay, nada más en el árbol de dependencias requiere `httpx`).
+- Fijar una versión exacta (`==2.7.0`) — descartado en favor de
+  `~=2.7.0` (permite parches `2.7.x`, coherente con el resto de pines del
+  proyecto), evitando quedar congelados en un parche de seguridad futuro.
+
+**Consecuencias**:
+- El warning de deprecación desaparece; `uv run pytest -v` pasa limpio
+  (2 tests, 0 warnings).
+- Cadena de dependencias transitivas cambia: `httpx2` trae `httpcore2` y
+  `truststore` (en vez de `httpcore` + `certifi`). `truststore` usa el
+  almacén de certificados nativo del sistema operativo en lugar de un
+  bundle de CA empaquetado (`certifi`) — sin impacto ahora (solo se usa
+  en tests locales), pero es algo a revisar si en el futuro se ejecutan
+  tests en contenedores mínimos sin almacén de certificados del SO
+  configurado (Fase 1, infraestructura Docker).
+- Ruff, mypy y pre-commit se re-ejecutaron completos tras el cambio: sin
+  incidencias.
+
+**Riesgo de adoptar un fork relativamente reciente**: `httpx2` se anunció
+en mayo de 2026 (dos meses de antigüedad en el momento de esta decisión).
+Es un fork con compromiso explícito de compatibilidad y mismo diseño que
+`httpx`, mantenido por Pydantic (mismo proveedor que ya usamos para
+`pydantic` en runtime), pero tiene menos recorrido en producción que el
+`httpx` clásico. Al ser una dependencia de **desarrollo** (solo tests),
+el radio de impacto de un eventual problema queda acotado al entorno de
+CI/desarrollo, no a producción.
+
+**Criterio para revisar o revertir esta decisión**: revertir a `httpx`
+(o evaluar alternativas) si ocurre cualquiera de estos casos:
+- `httpx2` deja de recibir releases durante un periodo prolongado (misma
+  señal de alerta que motivó esta migración).
+- Aparece una incompatibilidad real con `TestClient`/Starlette en una
+  actualización futura de FastAPI/Starlette.
+- El cambio de `certifi` a `truststore` causa fallos de verificación de
+  certificados en el entorno de CI o en contenedores Docker (Fase 1).
