@@ -1,8 +1,10 @@
 # Migrations
 
-Alembic esta configurado (`../alembic.ini`, `env.py`, `script.py.mako`),
-pero `target_metadata` en `env.py` es `None`: todavia no existe ningun
-modelo de dominio al que generar migraciones. No hay ninguna revision en
-este directorio. Cuando exista la `Base` declarativa del shared kernel
-(Fase 2 del roadmap), `env.py` se actualizara para apuntar a ella y podran
-generarse migraciones reales con `alembic revision --autogenerate`.
+Alembic esta configurado (`../alembic.ini`, `env.py`, `script.py.mako`).
+`target_metadata` en `env.py` ya apunta a la `Base` declarativa del shared
+kernel (`athlos.platform.infrastructure.persistence.database.Base`), que
+por ahora solo registra la tabla `outbox_messages` (Fase 2). Todavia no
+hay ninguna revision en este directorio: generar la primera migracion real
+con `alembic revision --autogenerate` requiere un Postgres real contra el
+que ejecutarla, y se hara junto con el primer modelo de dominio de negocio
+(Fase 3 en adelante).

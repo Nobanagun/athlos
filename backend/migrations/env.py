@@ -1,10 +1,12 @@
 """Alembic environment.
 
-Skeleton sin modelos de dominio todavia: `target_metadata` se conectara a
-la `Base` declarativa de `athlos.platform.infrastructure.persistence`
-cuando exista (Fase 2 del roadmap). Sin esta conexion, `--autogenerate`
-no detectara ningun cambio, pero `alembic` es utilizable para migraciones
-escritas a mano en cuanto se necesiten.
+`target_metadata` apunta a la `Base` declarativa del shared kernel
+(`athlos.platform.infrastructure.persistence.database.Base`). Por ahora
+esa `Base` solo registra la tabla `outbox_messages` (Fase 2); cada modulo
+de negocio futuro extendera la misma `Base`, y `--autogenerate` los vera
+automaticamente sin tener que volver a tocar este archivo. Todavia no se
+ha generado ninguna migracion real: eso se hara cuando exista tambien un
+Postgres real contra el que generarla (Fase 3 en adelante).
 """
 
 import os
@@ -12,6 +14,11 @@ from logging.config import fileConfig
 
 from alembic import context
 from sqlalchemy import engine_from_config, pool
+
+# Importa los modulos ORM del shared kernel para que sus tablas queden
+# registradas en `Base.metadata` antes de que Alembic la use.
+from athlos.platform.infrastructure.outbox import models as _outbox_models  # noqa: F401
+from athlos.platform.infrastructure.persistence.database import Base
 
 config = context.config
 
@@ -22,7 +29,7 @@ database_url = os.environ.get("DATABASE_URL")
 if database_url:
     config.set_main_option("sqlalchemy.url", database_url)
 
-target_metadata = None
+target_metadata = Base.metadata
 
 
 def run_migrations_offline() -> None:

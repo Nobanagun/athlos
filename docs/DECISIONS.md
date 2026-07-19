@@ -274,3 +274,79 @@ CI/desarrollo, no a producción.
   actualización futura de FastAPI/Starlette.
 - El cambio de `certifi` a `truststore` causa fallos de verificación de
   certificados en el entorno de CI o en contenedores Docker (Fase 1).
+
+---
+
+## 2026-07-20 — Shared kernel (Fase 2): implementación inicial de `platform/`
+
+**Decisión**: se implementan los building blocks del shared kernel
+(`Entity`, `AggregateRoot`, `ValueObject`, `DomainEvent`), los contratos
+`UnitOfWork`/`EventBus`, `SqlAlchemyUnitOfWork` (implementación concreta,
+síncrona), el modelo `OutboxMessage` y `dispatch_pending()`, y
+`InMemoryEventBus`. Ningún módulo de negocio (`modules/`) se toca; no se
+añade ninguna dependencia nueva.
+
+**Unit of Work y sesiones síncronas**: se descarta async para esta fase.
+FastAPI y psycopg3 soportan async, pero nada en Fase 2 lo exige, y async
+habría requerido añadir `pytest-asyncio` sin un caso de uso real que lo
+justifique todavía. Revisar cuando un módulo real (Fase 3+) demuestre
+necesitar I/O concurrente de verdad.
+
+**Algoritmo de `SqlAlchemyUnitOfWork.commit()`** (orden fijado
+explícitamente, no incidental): 1) copiar (sin mutar) los eventos
+pendientes de los agregados rastreados — una única vez, guardando esa
+lista; 2) el agregado ya está en la sesión (responsabilidad de quien la
+usa, vía `session.add()` antes de llamar a `commit()`); 3) escribir las
+filas de `outbox` en la misma sesión; 4) `session.commit()` único; 5)
+solo si el paso 4 tiene éxito, limpiar los eventos usando la **misma**
+lista obtenida en el paso 1 (nunca se vuelve a consultar
+`session.new/dirty/deleted` tras el commit, porque ese estado deja de ser
+significativo una vez terminada la transacción). Si algo falla antes del
+paso 4: `rollback()` y los eventos siguen intactos en memoria, porque
+nunca se extrajeron (solo se copiaron) hasta que el commit tuvo éxito.
+
+**`_tracked_aggregates()` como único punto de acceso a
+`session.new/dirty/deleted`**: `SqlAlchemyUnitOfWork` no consulta esas
+colecciones en ningún otro lugar. Es **suficiente para esta fase**: el
+agregado de prueba siempre aparece en `session.new` en el mismo momento en
+que registra su evento. **Limitación conocida**: este mecanismo no
+detecta un agregado que registre un evento de dominio sin que ningún
+atributo mapeado cambie (p. ej. un evento puramente notificacional). Si un
+módulo real (Fase 3+) presenta ese caso, ese evento se perdería
+silenciamente con el mecanismo actual — el cambio necesario (sustituir por
+un registro explícito de agregados en la UoW) queda localizado a este
+único método por diseño.
+
+**Sin repositorio genérico en `platform/`**: no se pudo demostrar que
+fuera imprescindible para los criterios de esta fase — `session.add()`
+directo basta. Se añadirá en un módulo real (o se promoverá al shared
+kernel) cuando un caso de uso concreto de Fase 3+ lo justifique.
+
+**Tests contra SQLite en memoria, no PostgreSQL real**: evita depender de
+que la Fase 1 de Docker esté cerrada. **Pendiente explícito**: SQLite
+difiere de PostgreSQL en el manejo de tipos (`JSON`, `UUID`); el
+comportamiento del outbox (en particular la columna `payload` JSON y las
+claves `UUID`) debe re-validarse contra PostgreSQL real en cuanto
+`infra/docker/docker-compose.yml` tenga un servicio de base de datos
+activo (resto de la Fase 1 / Fase 3).
+
+**Bus de eventos in-memory (`InMemoryEventBus`)**: no se usa Redis (ya
+instalado como dependencia) porque no existe todavía ningún consumidor
+cross-proceso real. `dispatch_pending()` recibe el mapeo
+`event_type -> clase` como parámetro del llamador — el shared kernel no
+conoce ningún tipo de evento concreto de ningún módulo.
+
+**`target_metadata` de Alembic**: `migrations/env.py` ahora apunta a
+`athlos.platform.infrastructure.persistence.database.Base`, que por ahora
+solo registra `outbox_messages`. Sigue sin generarse ninguna migración
+real (`alembic revision --autogenerate` no se ha ejecutado): eso requiere
+un PostgreSQL real, pendiente del resto de la Fase 1.
+
+**Consecuencias**: 19 tests unitarios nuevos en
+`backend/tests/unit/platform/`, todos en verde; Ruff, mypy (`strict`, sin
+`type: ignore` ni overrides de configuración) y `pre-commit` sin
+incidencias. Se añadieron
+`backend/tests/__init__.py`, `backend/tests/unit/__init__.py` y
+`backend/tests/unit/platform/__init__.py` (no estaban en el plan
+original) para que mypy pudiera distinguir los dos `conftest.py` del
+árbol de tests como módulos distintos — pytest ya lo toleraba, mypy no.

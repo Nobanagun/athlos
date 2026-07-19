@@ -67,7 +67,10 @@ forma consistente.
 - `platform/application`: contrato de `UnitOfWork`, interfaz de bus de
   eventos.
 - `platform/infrastructure/persistence`: configuración base de acceso a
-  datos (engine/sesión) y repositorio genérico.
+  datos (engine/sesión). El repositorio genérico originalmente previsto
+  aquí quedó deliberadamente fuera de la implementación inicial (no se
+  pudo justificar como imprescindible para los criterios de esta fase) —
+  ver `DECISIONS.md`, entrada "Shared kernel (Fase 2)".
 - `platform/infrastructure/outbox`: implementación del Transactional
   Outbox (tabla de outbox, escritura atómica junto al agregado, proceso
   de despacho).
