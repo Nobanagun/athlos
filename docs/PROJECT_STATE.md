@@ -1,6 +1,6 @@
 # Project State
 
-> Última actualización: 2026-07-19
+> Última actualización: 2026-07-20
 > Este documento es la fuente de verdad sobre el estado real del proyecto.
 > Debe actualizarse cada vez que cambie algo significativo (stack, estructura,
 > fase actual). Si este documento contradice el código, el código manda —
@@ -8,14 +8,15 @@
 
 ## Estado actual
 
-Fase 1 en curso — **bootstrap del backend completado** (PR #1,
-`feature/bootstrap-backend`). El backend tiene ahora un entorno de
-desarrollo real: dependencias instaladas y fijadas con `uv`, linting
-(Ruff), type checking estricto (mypy) y tests (pytest) configurados y en
-verde, y hooks de `pre-commit` funcionando. **Sigue sin haber ninguna
-funcionalidad de negocio implementada**: ni modelos de dominio con
-lógica, ni endpoints de negocio (solo un `GET /health` de verificación),
-ni migraciones reales, ni pantallas de la app móvil.
+Fase 1 (bootstrap del backend, PR #1) completada. **Fase 2 en curso —
+shared kernel de `platform/` implementado**: `Entity`, `AggregateRoot`,
+`ValueObject`, `DomainEvent`, los contratos `UnitOfWork`/`EventBus`, la
+`SqlAlchemyUnitOfWork` concreta (síncrona), el modelo `OutboxMessage` con
+despacho (`dispatch_pending()`) y `InMemoryEventBus`. 19 tests unitarios
+nuevos, todos en verde. **Sigue sin haber ningún módulo de negocio
+implementado**: `modules/` sigue siendo solo docstrings; no hay
+endpoints de negocio (solo `GET /health`); no hay ninguna migración real
+de Alembic todavía.
 
 Ver [`ROADMAP.md`](ROADMAP.md) para las fases siguientes y
 [`docs/agent/OPEN_QUESTIONS.md`](agent/OPEN_QUESTIONS.md) para
@@ -70,10 +71,16 @@ athlos/
 ### Backend
 
 - Estructura de carpetas de los 8 módulos (bounded contexts) creada, cada
-  uno con capas `domain/application/infrastructure/interfaces`.
-- Todos los archivos `.py` de `modules/` y `platform/` siguen siendo
-  **placeholders con docstring**, sin imports ni lógica — el bootstrap no
-  ha tocado el dominio.
+  uno con capas `domain/application/infrastructure/interfaces`. Todos los
+  archivos `.py` de `modules/` siguen siendo **placeholders con
+  docstring** — ningún módulo de negocio se ha tocado en Fase 2.
+- **`platform/` (shared kernel) ya tiene implementación real** (Fase 2):
+  `Entity`/`AggregateRoot`/`ValueObject`/`DomainEvent` (dominio puro, sin
+  SQLAlchemy ni Pydantic); `UnitOfWork`/`EventBus` (contratos);
+  `SqlAlchemyUnitOfWork` (concreta, síncrona, con el algoritmo de commit
+  documentado en `DECISIONS.md`); `OutboxMessage` + `dispatch_pending()`
+  (Transactional Outbox); `InMemoryEventBus`. Sin repositorio genérico
+  (no se justificó todavía). Tests en `backend/tests/unit/platform/`.
 - Gestor de dependencias: `uv`, con `.python-version` (3.13) y `uv.lock`
   commiteado. `pyproject.toml` declara dependencias reales y fijadas
   (`fastapi`, `uvicorn`, `sqlalchemy`, `alembic`, `psycopg`, `redis`,
@@ -86,11 +93,15 @@ athlos/
   `pyproject.toml` y en verde; `pre-commit` instalado y validado contra
   un `git commit` real.
 - Alembic configurado (`alembic.ini`, `migrations/env.py`,
-  `script.py.mako`) pero `target_metadata = None` — sin ninguna migración
-  real todavía, a la espera del shared kernel (Fase 2).
+  `script.py.mako`); `target_metadata` ya apunta a la `Base` del shared
+  kernel (registra `outbox_messages`). Sigue sin generarse ninguna
+  migración real — requiere PostgreSQL real, pendiente del resto de la
+  Fase 1.
 - Sin base de datos ni Redis en ejecución — los drivers están instalados
   pero no hay ningún servicio real levantado (eso es Fase 1, sección de
-  infraestructura Docker, todavía pendiente).
+  infraestructura Docker, todavía pendiente). Los tests del shared kernel
+  corren contra SQLite en memoria; **pendiente re-validar el outbox
+  contra PostgreSQL real** (ver `DECISIONS.md`).
 
 ### Frontend
 
@@ -114,11 +125,10 @@ athlos/
 
 ## Próximo objetivo
 
-Bootstrap del backend completado; queda pendiente el resto de la Fase 1
-(CI en `.github/workflows/`, servicios reales en
+Shared kernel de Fase 2 implementado. Queda pendiente: el resto de la
+Fase 1 (CI en `.github/workflows/`, servicios reales en
 `infra/docker/docker-compose.yml`, bootstrap real de la app móvil con
-Expo) y, en paralelo o a continuación, la Fase 2: construcción del shared
-kernel (`platform/`: Entity, AggregateRoot, Value Object, Unit of Work,
-Transactional Outbox) como base para implementar el primer módulo de
-negocio de extremo a extremo. Ver Fase 1 y Fase 2 en
-[`ROADMAP.md`](ROADMAP.md).
+Expo) y, con eso resuelto, validar el outbox contra PostgreSQL real antes
+de dar la Fase 2 por completamente cerrada. A partir de ahí, Fase 3:
+primer módulo de negocio real (`identity`) sobre este shared kernel. Ver
+`ROADMAP.md`.
