@@ -1,6 +1,6 @@
 # Project State
 
-> Última actualización: 2026-07-20
+> Última actualización: 2026-07-21
 > Este documento es la fuente de verdad sobre el estado real del proyecto.
 > Debe actualizarse cada vez que cambie algo significativo (stack, estructura,
 > fase actual). Si este documento contradice el código, el código manda —
@@ -8,15 +8,16 @@
 
 ## Estado actual
 
-Fase 1 (bootstrap del backend, PR #1) completada. **Fase 2 en curso —
-shared kernel de `platform/` implementado**: `Entity`, `AggregateRoot`,
-`ValueObject`, `DomainEvent`, los contratos `UnitOfWork`/`EventBus`, la
-`SqlAlchemyUnitOfWork` concreta (síncrona), el modelo `OutboxMessage` con
-despacho (`dispatch_pending()`) y `InMemoryEventBus`. 19 tests unitarios
-nuevos, todos en verde. **Sigue sin haber ningún módulo de negocio
-implementado**: `modules/` sigue siendo solo docstrings; no hay
-endpoints de negocio (solo `GET /health`); no hay ninguna migración real
-de Alembic todavía.
+Fase 1 (bootstrap del backend, PR #1) y Fase 2 (shared kernel de
+`platform/`, PR #2) completadas. **Fase 3 en curso — primer incremento
+del módulo `identity` implementado**: agregado `User`, value objects
+`UserId`/`Email`, `AccountStatus` (solo `ACTIVE`), evento
+`UserRegistered`, puerto `UserRepository` y el caso de uso
+`RegisterUserHandler`. Cubre únicamente identidad de usuario — **sin
+autenticación** (sin login, JWT, contraseñas, sesiones ni dispositivos
+vinculados) y **sin infraestructura ni HTTP todavía** (sin repositorio
+SQLAlchemy real, sin migración, sin endpoints). 14 tests unitarios
+nuevos (33 en total en el backend), todos en verde.
 
 Ver [`ROADMAP.md`](ROADMAP.md) para las fases siguientes y
 [`docs/agent/OPEN_QUESTIONS.md`](agent/OPEN_QUESTIONS.md) para
@@ -71,9 +72,18 @@ athlos/
 ### Backend
 
 - Estructura de carpetas de los 8 módulos (bounded contexts) creada, cada
-  uno con capas `domain/application/infrastructure/interfaces`. Todos los
-  archivos `.py` de `modules/` siguen siendo **placeholders con
-  docstring** — ningún módulo de negocio se ha tocado en Fase 2.
+  uno con capas `domain/application/infrastructure/interfaces`. **7 de 8
+  módulos siguen siendo placeholders con docstring** (`training`,
+  `recovery`, `planning`, `coaching`, `analytics`, `sync`,
+  `integrations`).
+- **`identity` (Fase 3, incremento 1)**: `domain/` (`User`, `UserId`,
+  `Email`, `AccountStatus`, `UserRegistered`,
+  `EmailAlreadyRegisteredError`) y `application/` (`UserRepository`
+  como puerto específico del módulo, `RegisterUserHandler`)
+  implementados y testeados con dobles de prueba (sin base de datos).
+  `identity/infrastructure/` e `identity/interfaces/` siguen siendo
+  placeholders — deliberadamente diferidos al siguiente incremento (ver
+  `DECISIONS.md`).
 - **`platform/` (shared kernel) ya tiene implementación real** (Fase 2):
   `Entity`/`AggregateRoot`/`ValueObject`/`DomainEvent` (dominio puro, sin
   SQLAlchemy ni Pydantic); `UnitOfWork`/`EventBus` (contratos);
@@ -125,10 +135,9 @@ athlos/
 
 ## Próximo objetivo
 
-Shared kernel de Fase 2 implementado. Queda pendiente: el resto de la
-Fase 1 (CI en `.github/workflows/`, servicios reales en
-`infra/docker/docker-compose.yml`, bootstrap real de la app móvil con
-Expo) y, con eso resuelto, validar el outbox contra PostgreSQL real antes
-de dar la Fase 2 por completamente cerrada. A partir de ahí, Fase 3:
-primer módulo de negocio real (`identity`) sobre este shared kernel. Ver
-`ROADMAP.md`.
+Primer incremento de `identity` (dominio + aplicación) implementado.
+Pendiente: (1) el resto de la Fase 1 (CI, servicios Docker reales,
+bootstrap de la app móvil) y validar el outbox contra PostgreSQL real;
+(2) siguiente incremento de `identity`: `SqlAlchemyUserRepository`,
+modelo ORM de `User`, primera migración real, y una restricción `UNIQUE`
+de email (ver riesgo pendiente en `DECISIONS.md`). Ver `ROADMAP.md`.
