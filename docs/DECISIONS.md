@@ -350,3 +350,75 @@ incidencias. Se añadieron
 `backend/tests/unit/platform/__init__.py` (no estaban en el plan
 original) para que mypy pudiera distinguir los dos `conftest.py` del
 árbol de tests como módulos distintos — pytest ya lo toleraba, mypy no.
+
+---
+
+## 2026-07-21 — Fase 3 (incremento 1): diseño inicial del módulo `identity`
+
+**Decisión**: se implementa únicamente **identidad de usuario**, no
+autenticación. `ROADMAP.md` describe la Fase 3 completa como "usuarios,
+autenticación y dispositivos vinculados" — este incremento cubre solo la
+existencia de un `User` con email y estado básico de cuenta. Sin login,
+sin JWT/OAuth/refresh tokens/sesiones, sin almacenamiento de contraseñas
+(ni siquiera hasheadas), sin proveedor externo de identidad, sin
+dispositivos vinculados. `identity/interfaces/` e
+`identity/infrastructure/` quedan sin tocar (ver más abajo).
+
+**Modelo de dominio**: agregado `User(AggregateRoot[UserId])`;
+`UserId`/`Email` como value objects (`platform.domain.ValueObject`);
+`AccountStatus` como enum con **un único valor, `ACTIVE`** — no se añade
+`DEACTIVATED` ni ningún otro estado hasta que exista un caso de uso real
+que transicione la cuenta (evita una máquina de estados sin ningún
+consumidor). `User.register(email)` es el único punto de entrada
+previsto para crear usuarios; emite `UserRegistered`.
+
+**Normalización de `Email`**: `strip()` + `lower()` aplicados **antes**
+de validar la estructura (un único `@`, partes local/dominio no vacías).
+Sin librería externa (`email-validator` u otra) — validación
+estructural mínima, suficiente para esta fase; se revisará si el input
+real por HTTP (fase posterior, con endpoints) expone casos que la
+validación actual no cubra.
+
+**`UserRegistered` con campos `str`, no `UserId`/`Email`**: consecuencia
+directa del diseño del outbox de la Fase 2 —
+`OutboxMessage.from_event()` usa `dataclasses.asdict()` asumiendo campos
+JSON-primitivos; un `uuid.UUID` crudo en el payload rompería la
+serialización JSON. Todo evento de dominio pensado para pasar por el
+outbox debe declarar sus campos ya en tipos JSON-primitivos.
+
+**⚠️ Unicidad de email no es todavía atómica**: `RegisterUserHandler`
+comprueba duplicados vía `UserRepository.get_by_email()` antes de crear
+el `User`, pero esto es una comprobación a nivel de aplicación, no una
+garantía transaccional. Sin infraestructura real todavía (ver siguiente
+punto), no existe ninguna restricción `UNIQUE` de base de datos. Dos
+registros concurrentes con el mismo email podrían, en teoría, superar
+ambos la comprobación antes de que cualquiera de los dos persista. **Esto
+queda pendiente de cerrarse con una restricción `UNIQUE` real en la
+tabla de usuarios cuando se implemente `identity/infrastructure`** (
+incremento siguiente) — la comprobación actual es una mejora de UX
+(mensaje de error claro), no la garantía dura.
+
+**`RegisterUserHandler.handle()` devuelve solo `UserId`**, nunca el
+agregado `User` — evita filtrar el objeto de dominio completo (y su
+lista interna de eventos ya "gastados") fuera de la capa de aplicación.
+
+**Infraestructura y HTTP deliberadamente fuera de este incremento**: sin
+`SqlAlchemyUserRepository`, sin modelo ORM de `User`, sin migración real,
+sin ningún endpoint. Los tests usan `InMemoryUserRepository` y
+`FakeUnitOfWork` (dobles de prueba en `backend/tests/unit/modules/identity/application/_fakes.py`),
+consistente con la filosofía de testing ya declarada en `ARCHITECTURE.md`.
+
+**Consecuencias**: 14 tests unitarios nuevos en
+`backend/tests/unit/modules/identity/`, todos en verde (33 en total en el
+backend); Ruff, mypy (`strict`) y `pre-commit` sin incidencias. La
+excepción de dominio se llama `EmailAlreadyRegisteredError` (no
+`EmailAlreadyRegistered`) por la regla `N818` de Ruff (sufijo `Error`
+obligatorio en nombres de excepción). Verificado explícitamente con
+`grep`: `identity/` no importa de ningún otro módulo de `modules/`, y
+`identity/domain`+`identity/application` no importan `sqlalchemy`,
+`fastapi` ni `pydantic`.
+
+**Pendiente**: `ROADMAP.md` Fase 3 sigue describiendo el alcance completo
+(auth + dispositivos) sin anotar que se está partiendo en incrementos —
+mismo tipo de nota pendiente que quedó para "repositorio genérico" en la
+Fase 2.
