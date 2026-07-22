@@ -422,3 +422,76 @@ obligatorio en nombres de excepción). Verificado explícitamente con
 (auth + dispositivos) sin anotar que se está partiendo en incrementos —
 mismo tipo de nota pendiente que quedó para "repositorio genérico" en la
 Fase 2.
+
+---
+
+## 2026-07-22 — Fase 3 (incremento 2): infraestructura de persistencia de `identity`
+
+**Decisión**: se implementa `identity/infrastructure` con **mapeo
+declarativo mediante subclase + `TypeDecorator`** para `UserId`/`Email`
+(la Opción 1 de la comparación técnica previa a esta entrada). Se
+descartaron: mapeo clásico (peor soporte de tipado en SQLAlchemy 2.x),
+`composite()` (pensado para VOs multi-atributo, sobredimensionado para
+un único valor envuelto) y modelo ORM separado con tipos primitivos
+(rompía la detección de agregados de `SqlAlchemyUnitOfWork` sin tocar
+`platform/`).
+
+**Bloqueo real descubierto durante la implementación (no de
+`platform/`)**: `User.register(email)` usa `cls(...)` internamente, pero
+`RegisterUserHandler` (capa de aplicación) solo conoce la clase base
+`User` — nunca `_MappedUser` (la subclase privada de infraestructura).
+Esto significa que `User.register()` siempre construye un `User` sin
+mapear, nunca un `_MappedUser`, y `session.add(user)` fallaba con
+`UnmappedInstanceError`. Solución: `_MappedUser.from_domain(user)`, un
+classmethod en `infrastructure/models.py` que envuelve el `User` ya
+creado por la capa de aplicación en su forma persistible, trasladando
+sus eventos de dominio pendientes. `SqlAlchemyUserRepository.add()`
+llama a este método en vez de hacer `session.add(user)` directamente.
+Verificado con una prueba manual antes de escribir los tests formales.
+Ningún cambio en `platform/` fue necesario — el bloqueo estaba
+enteramente dentro de `identity/infrastructure`.
+
+**`EmailAlreadyRegisteredError` vs `IntegrityError`** — ambas conviven,
+ninguna sustituye a la otra:
+
+| | `EmailAlreadyRegisteredError` | `IntegrityError` |
+|---|---|---|
+| Origen | `RegisterUserHandler`, vía `get_by_email()` | La base de datos, al violar el `UNIQUE` de `users.email` |
+| Cuándo | Antes de intentar persistir (una consulta previa) | Durante `commit()` (al escribir de verdad) |
+| Naturaleza | Comprobación de aplicación, no atómica frente a condiciones de carrera | Garantía atómica y definitiva |
+| Propósito | Buen UX (mensaje de dominio claro) en el caso sin concurrencia | Correctness real en el caso concurrente |
+
+Probado explícitamente con dos escenarios distintos: `test_register_duplicate_email_raises_and_persists_nothing`
+(camino feliz de la comprobación de aplicación) y
+`test_integrity_error_rolls_back_transaction_completely` (se salta la
+comprobación deliberadamente para forzar que el `IntegrityError` ocurra
+dentro de `commit()`, verificando con una **sesión nueva** —no la que
+falló— que ni el usuario ni su evento de outbox quedaron persistidos).
+
+**Registro manual en `migrations/env.py`**: extender `Base` no basta
+para que Alembic vea una tabla nueva — su módulo de modelos ORM tiene
+que importarse explícitamente para que la clase declarativa se ejecute
+antes de que `Base.metadata` se inspeccione. `migrations/env.py` ya
+importaba el módulo del shared kernel (Fase 2); ahora también importa
+`athlos.modules.identity.infrastructure.models`. **Esto es una
+limitación de proceso, no un detalle puntual de este incremento**:
+mientras no exista un mecanismo de descubrimiento automático de módulos
+ORM, cada módulo futuro con infraestructura de persistencia propia debe
+añadir aquí su propio import a mano — un olvido deja esa tabla invisible
+para las migraciones sin ningún error visible. Documentado también en
+`backend/migrations/README.md` para que sea lo primero que se vea al
+tocar ese directorio.
+
+**Sin migración real generada todavía**: sigue pendiente de un
+PostgreSQL real (Fase 1). `Base.metadata` ya contiene `users` junto a
+`outbox_messages`, lista para cuando se ejecute
+`alembic revision --autogenerate`.
+
+**Consecuencias**: 8 tests de integración nuevos en
+`backend/tests/integration/identity/` (41 en total en el backend), todos
+en verde; Ruff, mypy (`strict`, sin `type: ignore`) y `pre-commit` sin
+incidencias. `platform/` queda sin ningún cambio (`git diff main --
+backend/src/athlos/platform/` vacío) — la Opción 1 cumplió su promesa
+principal. `TypeDecorator[UserId]`/`TypeDecorator[Email]` no dieron
+ninguna fricción con `mypy --strict`, contra lo anticipado como riesgo en
+el plan previo.

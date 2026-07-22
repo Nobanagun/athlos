@@ -1,12 +1,19 @@
 """Alembic environment.
 
 `target_metadata` apunta a la `Base` declarativa del shared kernel
-(`athlos.platform.infrastructure.persistence.database.Base`). Por ahora
-esa `Base` solo registra la tabla `outbox_messages` (Fase 2); cada modulo
-de negocio futuro extendera la misma `Base`, y `--autogenerate` los vera
-automaticamente sin tener que volver a tocar este archivo. Todavia no se
-ha generado ninguna migracion real: eso se hara cuando exista tambien un
-Postgres real contra el que generarla (Fase 3 en adelante).
+(`athlos.platform.infrastructure.persistence.database.Base`), que ahora
+registra `outbox_messages` (Fase 2) y `users` (Fase 3). Todavia no se ha
+generado ninguna migracion real: eso se hara cuando exista tambien un
+Postgres real contra el que generarla.
+
+IMPORTANTE: extender `Base` en un modulo nuevo NO basta para que
+Alembic lo vea. Mientras no exista un mecanismo de descubrimiento
+automatico, cada modulo con infraestructura de persistencia propia debe
+anadir aqui, a mano, un import de su modulo de modelos ORM (como se hace
+abajo) para que su clase declarativa se ejecute y quede registrada en
+`Base.metadata` antes del `create_all()`/autogenerate. Ver
+`docs/DECISIONS.md` (entrada de infraestructura de `identity`, Fase 3) y
+`backend/migrations/README.md`.
 """
 
 import os
@@ -15,8 +22,10 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
-# Importa los modulos ORM del shared kernel para que sus tablas queden
-# registradas en `Base.metadata` antes de que Alembic la use.
+# Importa los modulos ORM de cada modulo/shared kernel para que sus
+# tablas queden registradas en `Base.metadata` antes de que Alembic la
+# use. Registro manual obligatorio por modulo (ver docstring arriba).
+from athlos.modules.identity.infrastructure import models as _identity_models  # noqa: F401
 from athlos.platform.infrastructure.outbox import models as _outbox_models  # noqa: F401
 from athlos.platform.infrastructure.persistence.database import Base
 
