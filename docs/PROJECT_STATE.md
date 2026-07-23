@@ -1,6 +1,6 @@
 # Project State
 
-> Última actualización: 2026-07-22
+> Última actualización: 2026-07-23
 > Este documento es la fuente de verdad sobre el estado real del proyecto.
 > Debe actualizarse cada vez que cambie algo significativo (stack, estructura,
 > fase actual). Si este documento contradice el código, el código manda —
@@ -17,9 +17,16 @@ persistencia real (`SqlAlchemyUserRepository`, mapeo declarativo de
 `User` vía subclase + `TypeDecorator` para `UserId`/`Email`, restricción
 `UNIQUE` de email real). Sigue **sin autenticación** (sin login, JWT,
 contraseñas, sesiones ni dispositivos vinculados) y **sin HTTP todavía**
-(`identity/interfaces/` sigue siendo placeholder). 22 tests nuevos desde
-el incremento 1 (14 unitarios + 8 de integración), 41 en total en el
-backend, todos en verde.
+(`identity/interfaces/` sigue siendo placeholder).
+
+**Corrección puntual en el shared kernel**: se encontró y arregló un bug
+real en `AggregateRoot` (`platform/domain/entity.py`) — un agregado
+reconstruido por SQLAlchemy desde una fila (no construido en Python)
+carecía de `_domain_events` y `.domain_events`/`record_event()`/
+`clear_domain_events()` lanzaban `AttributeError`. Ver `DECISIONS.md`
+para el análisis completo, la alternativa descartada y la verificación
+empírica previa a implementar. 46 tests en total en el backend, todos en
+verde.
 
 Ver [`ROADMAP.md`](ROADMAP.md) para las fases siguientes y
 [`docs/agent/OPEN_QUESTIONS.md`](agent/OPEN_QUESTIONS.md) para

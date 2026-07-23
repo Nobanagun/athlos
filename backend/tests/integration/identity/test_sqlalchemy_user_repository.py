@@ -96,3 +96,27 @@ def test_integrity_error_rolls_back_transaction_completely(engine: Engine) -> No
             verification_session.query(OutboxMessage).filter_by(event_type="UserRegistered").all()
         )
         assert len(outbox_rows) == 1
+
+
+def test_fetched_user_domain_events_does_not_crash(engine: Engine) -> None:
+    """Regression test: a `_MappedUser` reconstituted by SQLAlchemy from a
+    row (not freshly constructed in Python) never goes through
+    `AggregateRoot.__init__`, so `_domain_events` would not exist unless
+    `AggregateRoot` treats a missing list as "no events yet" (see
+    `platform/domain/entity.py`). Loaded in a brand-new session so this
+    is a genuine load, not a reused in-memory instance.
+    """
+    factory = sessionmaker(bind=engine)
+
+    with factory() as setup_session:
+        setup_repo = SqlAlchemyUserRepository(setup_session)
+        setup_uow = SqlAlchemyUnitOfWork(setup_session)
+        setup_repo.add(User.register(Email("regression@example.com")))
+        setup_uow.commit()
+
+    with factory() as fresh_session:
+        repo = SqlAlchemyUserRepository(fresh_session)
+        fetched = repo.get_by_email(Email("regression@example.com"))
+
+        assert fetched is not None
+        assert fetched.domain_events == ()

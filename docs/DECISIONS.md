@@ -495,3 +495,57 @@ backend/src/athlos/platform/` vacío) — la Opción 1 cumplió su promesa
 principal. `TypeDecorator[UserId]`/`TypeDecorator[Email]` no dieron
 ninguna fricción con `mypy --strict`, contra lo anticipado como riesgo en
 el plan previo.
+
+---
+
+## 2026-07-23 — Bug real en el shared kernel: `AggregateRoot` y objetos reconstruidos por el ORM
+
+**Contexto**: durante la revisión de la infraestructura de `identity`, se
+descubrió empíricamente que cualquier `_MappedUser` cargado por
+SQLAlchemy desde una fila (`get_by_id`, `get_by_email`, cualquier
+consulta) carecía por completo del atributo `_domain_events` —
+`.domain_events`, `.record_event()` y `.clear_domain_events()` lanzaban
+`AttributeError`. Causa raíz: SQLAlchemy reconstituye instancias
+cargadas vía `__new__` + población directa de atributos mapeados, **sin
+pasar nunca por `__init__`** — que es donde `AggregateRoot.__init__` fija
+`self._domain_events = []`. Verificado con una prueba manual antes de
+tocar nada: en una sesión nueva (sin ambigüedad de mapa de identidad),
+`fetched.domain_events` fallaba de inmediato.
+
+**Decisión**: `AggregateRoot.domain_events`/`record_event()`/
+`clear_domain_events()` tratan `_domain_events` ausente como "todavía sin
+eventos" (`getattr`/`hasattr` con valor por defecto), en vez de asumir
+que `__init__` siempre se ejecutó. `__init__` no cambia — sigue fijando
+la lista explícitamente para la construcción normal; el cambio es
+únicamente una red de seguridad para cuando `__init__` no se ejecuta.
+
+**Alternativa descartada — `@reconstructor` de SQLAlchemy**: arreglaría
+el problema en `_MappedUser` (infraestructura de `identity`) sin tocar
+`platform/`, pero habría que **repetirlo en cada módulo futuro** que use
+el mismo patrón de subclase declarativa (`training`, `recovery`, etc.),
+dependiendo de que cada implementador se acuerde de añadirlo — exactamente
+el mismo patrón de riesgo ("olvido silencioso módulo a módulo") ya
+identificado y documentado para el registro manual en
+`migrations/env.py`. La propiedad perezosa garantiza el invariante "todo
+`AggregateRoot` tiene un ciclo de vida de eventos coherente" **por
+diseño, una sola vez, en la propia clase**, en vez de por convención
+repetida.
+
+**Verificado antes de implementar** (no solo razonado): comportamiento
+idéntico para construcción normal (confirmado con los 41 tests
+existentes ejecutados con el diseño ya aplicado, sin ningún cambio de
+resultado); coste de rendimiento insignificante (microbenchmark: ~1 ns
+de diferencia por acceso sobre 200.000 iteraciones); y, revirtiendo el
+fix temporalmente con `git stash`, se confirmó que los tests nuevos
+fallan exactamente con el `AttributeError` original — no son falsos
+positivos.
+
+**Consecuencias**: 5 tests nuevos (46 en total en el backend): 4 en
+`backend/tests/unit/platform/test_entity.py` (comportamiento normal sin
+cambios, objeto creado vía `__new__` no revienta, `record_event`
+inicializa bajo demanda, `clear_domain_events` es un no-op sin lista) y
+1 de regresión en
+`backend/tests/integration/identity/test_sqlalchemy_user_repository.py`
+(`test_fetched_user_domain_events_does_not_crash`, con el flujo real:
+repositorio + UoW reales + sesión nueva). Cambio localizado en
+`platform/domain/entity.py` — ningún otro archivo de código tocado.
