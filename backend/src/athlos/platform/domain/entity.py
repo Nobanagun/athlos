@@ -21,6 +21,15 @@ class Entity[TId]:
 class AggregateRoot[TId](Entity[TId]):
     """Entity that is the transactional consistency boundary for its
     sub-entities, and the source of domain events.
+
+    `_domain_events` is normally set by `__init__`, but instances can also
+    come into existence without `__init__` ever running - notably, an ORM
+    (SQLAlchemy) reconstitutes a loaded row via `__new__` plus direct
+    attribute population, never calling `__init__`. `domain_events`,
+    `record_event()` and `clear_domain_events()` therefore treat a
+    missing `_domain_events` as "no events yet" instead of assuming it
+    always exists, so a freshly loaded aggregate behaves like one with no
+    pending events rather than raising `AttributeError`.
     """
 
     def __init__(self, id: TId) -> None:
@@ -28,18 +37,23 @@ class AggregateRoot[TId](Entity[TId]):
         self._domain_events: list[DomainEvent] = []
 
     def record_event(self, event: DomainEvent) -> None:
+        if not hasattr(self, "_domain_events"):
+            self._domain_events = []
         self._domain_events.append(event)
 
     @property
     def domain_events(self) -> tuple[DomainEvent, ...]:
         """Non-destructive read of pending events (always a copy)."""
-        return tuple(self._domain_events)
+        return tuple(getattr(self, "_domain_events", []))
 
     def clear_domain_events(self) -> None:
         """Discard pending events.
 
         Call only after they are safely persisted elsewhere (e.g. once a
         Unit of Work's commit has succeeded) - never before, or a failure
-        could silently drop events that were never actually saved.
+        could silently drop events that were never actually saved. A
+        no-op if there is nothing to clear (e.g. an aggregate that was
+        loaded, not constructed, and never recorded an event since).
         """
-        self._domain_events.clear()
+        if hasattr(self, "_domain_events"):
+            self._domain_events.clear()

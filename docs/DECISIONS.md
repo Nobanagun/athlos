@@ -422,3 +422,130 @@ obligatorio en nombres de excepción). Verificado explícitamente con
 (auth + dispositivos) sin anotar que se está partiendo en incrementos —
 mismo tipo de nota pendiente que quedó para "repositorio genérico" en la
 Fase 2.
+
+---
+
+## 2026-07-22 — Fase 3 (incremento 2): infraestructura de persistencia de `identity`
+
+**Decisión**: se implementa `identity/infrastructure` con **mapeo
+declarativo mediante subclase + `TypeDecorator`** para `UserId`/`Email`
+(la Opción 1 de la comparación técnica previa a esta entrada). Se
+descartaron: mapeo clásico (peor soporte de tipado en SQLAlchemy 2.x),
+`composite()` (pensado para VOs multi-atributo, sobredimensionado para
+un único valor envuelto) y modelo ORM separado con tipos primitivos
+(rompía la detección de agregados de `SqlAlchemyUnitOfWork` sin tocar
+`platform/`).
+
+**Bloqueo real descubierto durante la implementación (no de
+`platform/`)**: `User.register(email)` usa `cls(...)` internamente, pero
+`RegisterUserHandler` (capa de aplicación) solo conoce la clase base
+`User` — nunca `_MappedUser` (la subclase privada de infraestructura).
+Esto significa que `User.register()` siempre construye un `User` sin
+mapear, nunca un `_MappedUser`, y `session.add(user)` fallaba con
+`UnmappedInstanceError`. Solución: `_MappedUser.from_domain(user)`, un
+classmethod en `infrastructure/models.py` que envuelve el `User` ya
+creado por la capa de aplicación en su forma persistible, trasladando
+sus eventos de dominio pendientes. `SqlAlchemyUserRepository.add()`
+llama a este método en vez de hacer `session.add(user)` directamente.
+Verificado con una prueba manual antes de escribir los tests formales.
+Ningún cambio en `platform/` fue necesario — el bloqueo estaba
+enteramente dentro de `identity/infrastructure`.
+
+**`EmailAlreadyRegisteredError` vs `IntegrityError`** — ambas conviven,
+ninguna sustituye a la otra:
+
+| | `EmailAlreadyRegisteredError` | `IntegrityError` |
+|---|---|---|
+| Origen | `RegisterUserHandler`, vía `get_by_email()` | La base de datos, al violar el `UNIQUE` de `users.email` |
+| Cuándo | Antes de intentar persistir (una consulta previa) | Durante `commit()` (al escribir de verdad) |
+| Naturaleza | Comprobación de aplicación, no atómica frente a condiciones de carrera | Garantía atómica y definitiva |
+| Propósito | Buen UX (mensaje de dominio claro) en el caso sin concurrencia | Correctness real en el caso concurrente |
+
+Probado explícitamente con dos escenarios distintos: `test_register_duplicate_email_raises_and_persists_nothing`
+(camino feliz de la comprobación de aplicación) y
+`test_integrity_error_rolls_back_transaction_completely` (se salta la
+comprobación deliberadamente para forzar que el `IntegrityError` ocurra
+dentro de `commit()`, verificando con una **sesión nueva** —no la que
+falló— que ni el usuario ni su evento de outbox quedaron persistidos).
+
+**Registro manual en `migrations/env.py`**: extender `Base` no basta
+para que Alembic vea una tabla nueva — su módulo de modelos ORM tiene
+que importarse explícitamente para que la clase declarativa se ejecute
+antes de que `Base.metadata` se inspeccione. `migrations/env.py` ya
+importaba el módulo del shared kernel (Fase 2); ahora también importa
+`athlos.modules.identity.infrastructure.models`. **Esto es una
+limitación de proceso, no un detalle puntual de este incremento**:
+mientras no exista un mecanismo de descubrimiento automático de módulos
+ORM, cada módulo futuro con infraestructura de persistencia propia debe
+añadir aquí su propio import a mano — un olvido deja esa tabla invisible
+para las migraciones sin ningún error visible. Documentado también en
+`backend/migrations/README.md` para que sea lo primero que se vea al
+tocar ese directorio.
+
+**Sin migración real generada todavía**: sigue pendiente de un
+PostgreSQL real (Fase 1). `Base.metadata` ya contiene `users` junto a
+`outbox_messages`, lista para cuando se ejecute
+`alembic revision --autogenerate`.
+
+**Consecuencias**: 8 tests de integración nuevos en
+`backend/tests/integration/identity/` (41 en total en el backend), todos
+en verde; Ruff, mypy (`strict`, sin `type: ignore`) y `pre-commit` sin
+incidencias. `platform/` queda sin ningún cambio (`git diff main --
+backend/src/athlos/platform/` vacío) — la Opción 1 cumplió su promesa
+principal. `TypeDecorator[UserId]`/`TypeDecorator[Email]` no dieron
+ninguna fricción con `mypy --strict`, contra lo anticipado como riesgo en
+el plan previo.
+
+---
+
+## 2026-07-23 — Bug real en el shared kernel: `AggregateRoot` y objetos reconstruidos por el ORM
+
+**Contexto**: durante la revisión de la infraestructura de `identity`, se
+descubrió empíricamente que cualquier `_MappedUser` cargado por
+SQLAlchemy desde una fila (`get_by_id`, `get_by_email`, cualquier
+consulta) carecía por completo del atributo `_domain_events` —
+`.domain_events`, `.record_event()` y `.clear_domain_events()` lanzaban
+`AttributeError`. Causa raíz: SQLAlchemy reconstituye instancias
+cargadas vía `__new__` + población directa de atributos mapeados, **sin
+pasar nunca por `__init__`** — que es donde `AggregateRoot.__init__` fija
+`self._domain_events = []`. Verificado con una prueba manual antes de
+tocar nada: en una sesión nueva (sin ambigüedad de mapa de identidad),
+`fetched.domain_events` fallaba de inmediato.
+
+**Decisión**: `AggregateRoot.domain_events`/`record_event()`/
+`clear_domain_events()` tratan `_domain_events` ausente como "todavía sin
+eventos" (`getattr`/`hasattr` con valor por defecto), en vez de asumir
+que `__init__` siempre se ejecutó. `__init__` no cambia — sigue fijando
+la lista explícitamente para la construcción normal; el cambio es
+únicamente una red de seguridad para cuando `__init__` no se ejecuta.
+
+**Alternativa descartada — `@reconstructor` de SQLAlchemy**: arreglaría
+el problema en `_MappedUser` (infraestructura de `identity`) sin tocar
+`platform/`, pero habría que **repetirlo en cada módulo futuro** que use
+el mismo patrón de subclase declarativa (`training`, `recovery`, etc.),
+dependiendo de que cada implementador se acuerde de añadirlo — exactamente
+el mismo patrón de riesgo ("olvido silencioso módulo a módulo") ya
+identificado y documentado para el registro manual en
+`migrations/env.py`. La propiedad perezosa garantiza el invariante "todo
+`AggregateRoot` tiene un ciclo de vida de eventos coherente" **por
+diseño, una sola vez, en la propia clase**, en vez de por convención
+repetida.
+
+**Verificado antes de implementar** (no solo razonado): comportamiento
+idéntico para construcción normal (confirmado con los 41 tests
+existentes ejecutados con el diseño ya aplicado, sin ningún cambio de
+resultado); coste de rendimiento insignificante (microbenchmark: ~1 ns
+de diferencia por acceso sobre 200.000 iteraciones); y, revirtiendo el
+fix temporalmente con `git stash`, se confirmó que los tests nuevos
+fallan exactamente con el `AttributeError` original — no son falsos
+positivos.
+
+**Consecuencias**: 5 tests nuevos (46 en total en el backend): 4 en
+`backend/tests/unit/platform/test_entity.py` (comportamiento normal sin
+cambios, objeto creado vía `__new__` no revienta, `record_event`
+inicializa bajo demanda, `clear_domain_events` es un no-op sin lista) y
+1 de regresión en
+`backend/tests/integration/identity/test_sqlalchemy_user_repository.py`
+(`test_fetched_user_domain_events_does_not_crash`, con el flujo real:
+repositorio + UoW reales + sesión nueva). Cambio localizado en
+`platform/domain/entity.py` — ningún otro archivo de código tocado.

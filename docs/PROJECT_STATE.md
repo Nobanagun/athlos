@@ -1,6 +1,6 @@
 # Project State
 
-> Última actualización: 2026-07-21
+> Última actualización: 2026-07-23
 > Este documento es la fuente de verdad sobre el estado real del proyecto.
 > Debe actualizarse cada vez que cambie algo significativo (stack, estructura,
 > fase actual). Si este documento contradice el código, el código manda —
@@ -9,15 +9,24 @@
 ## Estado actual
 
 Fase 1 (bootstrap del backend, PR #1) y Fase 2 (shared kernel de
-`platform/`, PR #2) completadas. **Fase 3 en curso — primer incremento
-del módulo `identity` implementado**: agregado `User`, value objects
-`UserId`/`Email`, `AccountStatus` (solo `ACTIVE`), evento
-`UserRegistered`, puerto `UserRepository` y el caso de uso
-`RegisterUserHandler`. Cubre únicamente identidad de usuario — **sin
-autenticación** (sin login, JWT, contraseñas, sesiones ni dispositivos
-vinculados) y **sin infraestructura ni HTTP todavía** (sin repositorio
-SQLAlchemy real, sin migración, sin endpoints). 14 tests unitarios
-nuevos (33 en total en el backend), todos en verde.
+`platform/`, PR #2) completadas. **Fase 3 en curso — dos incrementos de
+`identity` implementados**: (1) dominio + aplicación (`User`, `UserId`,
+`Email`, `AccountStatus` solo `ACTIVE`, `UserRegistered`,
+`UserRepository`, `RegisterUserHandler`); (2) infraestructura de
+persistencia real (`SqlAlchemyUserRepository`, mapeo declarativo de
+`User` vía subclase + `TypeDecorator` para `UserId`/`Email`, restricción
+`UNIQUE` de email real). Sigue **sin autenticación** (sin login, JWT,
+contraseñas, sesiones ni dispositivos vinculados) y **sin HTTP todavía**
+(`identity/interfaces/` sigue siendo placeholder).
+
+**Corrección puntual en el shared kernel**: se encontró y arregló un bug
+real en `AggregateRoot` (`platform/domain/entity.py`) — un agregado
+reconstruido por SQLAlchemy desde una fila (no construido en Python)
+carecía de `_domain_events` y `.domain_events`/`record_event()`/
+`clear_domain_events()` lanzaban `AttributeError`. Ver `DECISIONS.md`
+para el análisis completo, la alternativa descartada y la verificación
+empírica previa a implementar. 46 tests en total en el backend, todos en
+verde.
 
 Ver [`ROADMAP.md`](ROADMAP.md) para las fases siguientes y
 [`docs/agent/OPEN_QUESTIONS.md`](agent/OPEN_QUESTIONS.md) para
@@ -76,14 +85,19 @@ athlos/
   módulos siguen siendo placeholders con docstring** (`training`,
   `recovery`, `planning`, `coaching`, `analytics`, `sync`,
   `integrations`).
-- **`identity` (Fase 3, incremento 1)**: `domain/` (`User`, `UserId`,
-  `Email`, `AccountStatus`, `UserRegistered`,
-  `EmailAlreadyRegisteredError`) y `application/` (`UserRepository`
-  como puerto específico del módulo, `RegisterUserHandler`)
-  implementados y testeados con dobles de prueba (sin base de datos).
-  `identity/infrastructure/` e `identity/interfaces/` siguen siendo
-  placeholders — deliberadamente diferidos al siguiente incremento (ver
-  `DECISIONS.md`).
+- **`identity` (Fase 3, incrementos 1 y 2)**: `domain/` (`User`,
+  `UserId`, `Email`, `AccountStatus`, `UserRegistered`,
+  `EmailAlreadyRegisteredError`) y `application/` (`UserRepository`,
+  `RegisterUserHandler`) sin cambios desde el incremento 1.
+  **`infrastructure/` ya tiene implementación real**: `models.py`
+  (`UserIdType`/`EmailType` como `TypeDecorator`, `_MappedUser` — subclase
+  declarativa privada de `User`) y `repository.py`
+  (`SqlAlchemyUserRepository`). Restricción `UNIQUE` real sobre
+  `users.email` — cierra el riesgo de unicidad no atómica del incremento
+  1 (la comprobación de aplicación `EmailAlreadyRegisteredError` sigue
+  existiendo para buen UX, pero ya no es la única garantía; ver
+  `DECISIONS.md`). `identity/interfaces/` sigue siendo placeholder — sin
+  HTTP todavía.
 - **`platform/` (shared kernel) ya tiene implementación real** (Fase 2):
   `Entity`/`AggregateRoot`/`ValueObject`/`DomainEvent` (dominio puro, sin
   SQLAlchemy ni Pydantic); `UnitOfWork`/`EventBus` (contratos);
@@ -103,15 +117,19 @@ athlos/
   `pyproject.toml` y en verde; `pre-commit` instalado y validado contra
   un `git commit` real.
 - Alembic configurado (`alembic.ini`, `migrations/env.py`,
-  `script.py.mako`); `target_metadata` ya apunta a la `Base` del shared
-  kernel (registra `outbox_messages`). Sigue sin generarse ninguna
-  migración real — requiere PostgreSQL real, pendiente del resto de la
-  Fase 1.
+  `script.py.mako`); `target_metadata` apunta a la `Base` del shared
+  kernel, que ahora registra `outbox_messages` **y `users`**. Sigue sin
+  generarse ninguna migración real — requiere PostgreSQL real, pendiente
+  del resto de la Fase 1. **Registro manual obligatorio**: cada módulo
+  con infraestructura propia debe añadir su import en `migrations/env.py`
+  a mano — no hay descubrimiento automático (ver `DECISIONS.md` y
+  `backend/migrations/README.md`).
 - Sin base de datos ni Redis en ejecución — los drivers están instalados
   pero no hay ningún servicio real levantado (eso es Fase 1, sección de
-  infraestructura Docker, todavía pendiente). Los tests del shared kernel
-  corren contra SQLite en memoria; **pendiente re-validar el outbox
-  contra PostgreSQL real** (ver `DECISIONS.md`).
+  infraestructura Docker, todavía pendiente). Los tests de `platform/` e
+  `identity` corren contra SQLite en memoria; **pendiente re-validar
+  contra PostgreSQL real** (outbox desde Fase 2, y ahora también la
+  restricción `UNIQUE` de `identity`).
 
 ### Frontend
 
@@ -135,9 +153,11 @@ athlos/
 
 ## Próximo objetivo
 
-Primer incremento de `identity` (dominio + aplicación) implementado.
+Infraestructura de `identity` implementada (incremento 2 de Fase 3).
 Pendiente: (1) el resto de la Fase 1 (CI, servicios Docker reales,
-bootstrap de la app móvil) y validar el outbox contra PostgreSQL real;
-(2) siguiente incremento de `identity`: `SqlAlchemyUserRepository`,
-modelo ORM de `User`, primera migración real, y una restricción `UNIQUE`
-de email (ver riesgo pendiente en `DECISIONS.md`). Ver `ROADMAP.md`.
+bootstrap de la app móvil) y, con Postgres real disponible, generar la
+primera migración real y re-validar outbox + restricción `UNIQUE` contra
+él; (2) evaluar si Fase 3 necesita más incrementos (API HTTP, auth,
+dispositivos) antes de considerarla cerrada, o si el siguiente trabajo
+pasa a `training` (Fase 4) apoyándose en un `identity` ya persistente de
+verdad. Ver `ROADMAP.md`.
