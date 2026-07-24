@@ -2,7 +2,7 @@
 
 import uuid
 
-from athlos.modules.identity.domain.value_objects import UserId
+from athlos.platform.domain.user_id import UserId
 
 
 def test_generated_ids_are_distinct() -> None:

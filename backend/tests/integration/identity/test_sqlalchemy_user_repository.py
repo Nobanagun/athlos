@@ -6,8 +6,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from athlos.modules.identity.domain.user import AccountStatus, User
-from athlos.modules.identity.domain.value_objects import Email, PasswordHash, UserId
+from athlos.modules.identity.domain.value_objects import Email, PasswordHash
 from athlos.modules.identity.infrastructure.repository import SqlAlchemyUserRepository
+from athlos.platform.domain.user_id import UserId
 from athlos.platform.infrastructure.outbox.models import OutboxMessage
 from athlos.platform.infrastructure.unit_of_work import SqlAlchemyUnitOfWork
 

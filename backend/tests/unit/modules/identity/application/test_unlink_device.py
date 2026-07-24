@@ -13,7 +13,8 @@ from athlos.modules.identity.application.unlink_device import (
     UnlinkDeviceHandler,
 )
 from athlos.modules.identity.domain.exceptions import DeviceNotFoundError
-from athlos.modules.identity.domain.value_objects import DeviceId, UserId
+from athlos.modules.identity.domain.value_objects import DeviceId
+from athlos.platform.domain.user_id import UserId
 from tests.unit.modules.identity.application._fakes import FakeUnitOfWork, InMemoryDeviceRepository
 
 _USER_ID = UserId.generate()

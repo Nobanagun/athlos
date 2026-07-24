@@ -8,8 +8,8 @@ import jwt
 import pytest
 
 from athlos.modules.identity.domain.exceptions import InvalidTokenError
-from athlos.modules.identity.domain.value_objects import UserId
 from athlos.modules.identity.infrastructure.jwt_token_issuer import PyJwtTokenIssuer
+from athlos.platform.domain.user_id import UserId
 
 _SECRET = "test-secret-well-over-32-bytes-long"
 

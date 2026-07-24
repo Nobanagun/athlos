@@ -19,12 +19,12 @@ from athlos.modules.identity.application.register_user import RegisterUserHandle
 from athlos.modules.identity.application.unlink_device import UnlinkDeviceHandler
 from athlos.modules.identity.domain.exceptions import InvalidTokenError
 from athlos.modules.identity.domain.user import User
-from athlos.modules.identity.domain.value_objects import UserId
 from athlos.modules.identity.infrastructure.device_repository import SqlAlchemyDeviceRepository
 from athlos.modules.identity.infrastructure.jwt_token_issuer import PyJwtTokenIssuer
 from athlos.modules.identity.infrastructure.password_hasher import Argon2PasswordHasher
 from athlos.modules.identity.infrastructure.repository import SqlAlchemyUserRepository
 from athlos.platform.application.unit_of_work import UnitOfWork
+from athlos.platform.domain.user_id import UserId
 
 # auto_error=False: a missing Authorization header is handled explicitly
 # in get_current_user_id below so it raises the same InvalidTokenError

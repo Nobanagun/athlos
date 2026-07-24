@@ -8,9 +8,9 @@
 
 ## Estado actual
 
-Fase 1 (bootstrap del backend, PR #1) y Fase 2 (shared kernel de
-`platform/`, PR #2) completadas. **Fase 3 — cinco incrementos de
-`identity` implementados**: (1) dominio + aplicación (`User`, `UserId`,
+Fase 1 (bootstrap del backend, PR #1), Fase 2 (shared kernel de
+`platform/`, PR #2) y **Fase 3 (`identity`, PR #3-#6) completadas**.
+Cinco incrementos: (1) dominio + aplicación (`User`, `UserId`,
 `Email`, `AccountStatus` solo `ACTIVE`, `UserRegistered`,
 `UserRepository`, `RegisterUserHandler`); (2) infraestructura de
 persistencia real (`SqlAlchemyUserRepository`, mapeo declarativo de
@@ -27,12 +27,13 @@ cliente, único por `(device_id, user_id)`, no globalmente), `POST
 /devices`, `GET /devices` y `DELETE /devices/{device_id}` protegidos con
 el mismo JWT, registro idempotente, eventos `DeviceLinked`/
 `DeviceUnlinked` vía outbox (el borrado incluido, sin tocar
-`platform/`). **Con este incremento, los criterios de finalización de la
-Fase 3 declarados en `ROADMAP.md` quedan cubiertos** — alta de usuario,
+`platform/`). Con este incremento, los tres criterios de finalización de
+la Fase 3 declarados en `ROADMAP.md` quedan cubiertos — alta de usuario,
 autenticación básica y registro de dispositivo end-to-end, Repository
-Pattern/Unit of Work sobre el shared kernel, tests de integración. El
-cierre formal del marcador de fase en `ROADMAP.md` (`⏳` → `✅`) sigue
-pendiente como decisión de proceso separada.
+Pattern/Unit of Work sobre el shared kernel, tests de integración.
+**Revisados y aprobados: la Fase 3 se marca aquí como completada.** El
+marcador de fase en `ROADMAP.md` (`⏳` → `✅`) se actualiza como paso
+separado, no incluido en esta revisión.
 
 **Corrección puntual en el shared kernel**: se encontró y arregló un bug
 real en `AggregateRoot` (`platform/domain/entity.py`) — un agregado
@@ -135,11 +136,13 @@ athlos/
   `DECISIONS.md`).
 - **`platform/` (shared kernel) ya tiene implementación real** (Fase 2):
   `Entity`/`AggregateRoot`/`ValueObject`/`DomainEvent` (dominio puro, sin
-  SQLAlchemy ni Pydantic); `UnitOfWork`/`EventBus` (contratos);
-  `SqlAlchemyUnitOfWork` (concreta, síncrona, con el algoritmo de commit
-  documentado en `DECISIONS.md`); `OutboxMessage` + `dispatch_pending()`
-  (Transactional Outbox); `InMemoryEventBus`. Sin repositorio genérico
-  (no se justificó todavía). Tests en `backend/tests/unit/platform/`.
+  SQLAlchemy ni Pydantic); `UserId` (identificador transversal,
+  trasladado desde `identity/domain` — ver `DECISIONS.md`);
+  `UnitOfWork`/`EventBus` (contratos); `SqlAlchemyUnitOfWork` (concreta,
+  síncrona, con el algoritmo de commit documentado en `DECISIONS.md`);
+  `OutboxMessage` + `dispatch_pending()` (Transactional Outbox);
+  `InMemoryEventBus`. Sin repositorio genérico (no se justificó
+  todavía). Tests en `backend/tests/unit/platform/`.
 - Gestor de dependencias: `uv`, con `.python-version` (3.13) y `uv.lock`
   commiteado. `pyproject.toml` declara dependencias reales y fijadas
   (`fastapi`, `uvicorn`, `sqlalchemy`, `alembic`, `psycopg`, `redis`,
@@ -193,17 +196,16 @@ athlos/
 
 ## Próximo objetivo
 
-Dispositivos vinculados implementados (incremento 5 de Fase 3, `POST
-/devices` + `GET /devices` + `DELETE /devices/{device_id}`) — 112 tests
-en total en el backend, todos en verde. Con esto, los criterios de
-finalización de la Fase 3 declarados en `ROADMAP.md` quedan cubiertos;
-el cierre formal del marcador de fase sigue pendiente de revisión y
-aprobación. Pendiente, en orden: (1) confirmar el cierre de la Fase 3 y,
-con ello, si el siguiente trabajo pasa a la Fase 4 (`training`) —
-decisión ya tomada de que no empieza hasta cerrar la Fase 3 por
-completo; (2) el resto de la Fase 1 (CI, servicios Docker reales,
-bootstrap de la app móvil) y, con Postgres real disponible, generar la
-primera migración real y re-validar outbox + restricciones `UNIQUE`
-(`users.email`, `devices(device_id, user_id)`) contra él; (3)
-traducción de `IntegrityError` por condición de carrera, deliberadamente
+**Fase 3 (`identity`) completada** — cinco incrementos, 112 tests en
+total en el backend, todos en verde. Próximo objetivo: **Fase 4 —
+Training**, módulo de referencia que servirá de plantilla para el resto
+de bounded contexts de negocio (ver `ROADMAP.md`). Diseño inicial en
+preparación, pendiente de revisión antes de implementar nada.
+
+Sin relación de bloqueo con la Fase 4, sigue pendiente: (1) el resto de
+la Fase 1 (CI, servicios Docker reales, bootstrap de la app móvil) y,
+con Postgres real disponible, generar la primera migración real y
+re-validar outbox + restricciones `UNIQUE` (`users.email`,
+`devices(device_id, user_id)`) contra él; (2) traducción de
+`IntegrityError` por condición de carrera en `identity`, deliberadamente
 fuera de alcance hasta ahora (ver `DECISIONS.md`). Ver `ROADMAP.md`.

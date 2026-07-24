@@ -7,7 +7,7 @@ import jwt
 
 from athlos.modules.identity.application.ports import TokenIssuer
 from athlos.modules.identity.domain.exceptions import InvalidTokenError
-from athlos.modules.identity.domain.value_objects import UserId
+from athlos.platform.domain.user_id import UserId
 
 _ALGORITHM = "HS256"
 

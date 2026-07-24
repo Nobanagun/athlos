@@ -5,8 +5,9 @@ from sqlalchemy.orm import Session
 
 from athlos.modules.identity.application.ports import UserRepository
 from athlos.modules.identity.domain.user import User
-from athlos.modules.identity.domain.value_objects import Email, UserId
+from athlos.modules.identity.domain.value_objects import Email
 from athlos.modules.identity.infrastructure.models import _MappedUser
+from athlos.platform.domain.user_id import UserId
 
 
 class SqlAlchemyUserRepository(UserRepository):

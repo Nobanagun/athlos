@@ -3,8 +3,9 @@
 from datetime import UTC, datetime
 
 from athlos.modules.identity.domain.events import DeviceLinked, DeviceUnlinked
-from athlos.modules.identity.domain.value_objects import DeviceId, DeviceLinkId, UserId
+from athlos.modules.identity.domain.value_objects import DeviceId, DeviceLinkId
 from athlos.platform.domain.entity import AggregateRoot
+from athlos.platform.domain.user_id import UserId
 
 
 class Device(AggregateRoot[DeviceLinkId]):

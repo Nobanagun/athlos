@@ -3,8 +3,9 @@
 from enum import Enum
 
 from athlos.modules.identity.domain.events import UserRegistered
-from athlos.modules.identity.domain.value_objects import Email, PasswordHash, UserId
+from athlos.modules.identity.domain.value_objects import Email, PasswordHash
 from athlos.platform.domain.entity import AggregateRoot
+from athlos.platform.domain.user_id import UserId
 
 
 class AccountStatus(Enum):

@@ -1,19 +1,15 @@
-"""Value objects for the identity bounded context."""
+"""Value objects for the identity bounded context.
+
+`UserId` is not defined here - it moved to `platform/domain/user_id.py`
+as a shared-kernel concept (see docs/DECISIONS.md): every module with
+user-owned data needs it, not just `identity`.
+"""
 
 import uuid
 from dataclasses import dataclass
 
 from athlos.modules.identity.domain.exceptions import InvalidEmailError
 from athlos.platform.domain.value_object import ValueObject
-
-
-@dataclass(frozen=True)
-class UserId(ValueObject):
-    value: uuid.UUID
-
-    @classmethod
-    def generate(cls) -> "UserId":
-        return cls(uuid.uuid4())
 
 
 @dataclass(frozen=True)
