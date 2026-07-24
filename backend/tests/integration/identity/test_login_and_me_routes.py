@@ -1,17 +1,12 @@
 """Integration tests for the identity HTTP interface (POST /login, GET
 /users/me) - the JWT stateless authentication increment.
 
-The `client`/`session` fixtures live in `conftest.py`, shared with the
-other identity route test modules.
+The `client`/`session`/`_jwt_secret` fixtures live in `conftest.py`,
+shared with the other identity route test modules.
 """
 
 import pytest
 from fastapi.testclient import TestClient
-
-
-@pytest.fixture(autouse=True)
-def _jwt_secret(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("JWT_SECRET", "test-secret-not-for-production-32-bytes")
 
 
 def _register(

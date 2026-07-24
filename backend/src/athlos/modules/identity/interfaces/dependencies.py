@@ -6,12 +6,21 @@ from sqlalchemy.orm import Session
 
 from athlos.api.dependencies import get_session, get_unit_of_work
 from athlos.config.settings import get_jwt_secret
+from athlos.modules.identity.application.list_user_devices import ListUserDevicesHandler
 from athlos.modules.identity.application.login_user import LoginUserHandler
-from athlos.modules.identity.application.ports import PasswordHasher, TokenIssuer, UserRepository
+from athlos.modules.identity.application.ports import (
+    DeviceRepository,
+    PasswordHasher,
+    TokenIssuer,
+    UserRepository,
+)
+from athlos.modules.identity.application.register_device import RegisterDeviceHandler
 from athlos.modules.identity.application.register_user import RegisterUserHandler
+from athlos.modules.identity.application.unlink_device import UnlinkDeviceHandler
 from athlos.modules.identity.domain.exceptions import InvalidTokenError
 from athlos.modules.identity.domain.user import User
 from athlos.modules.identity.domain.value_objects import UserId
+from athlos.modules.identity.infrastructure.device_repository import SqlAlchemyDeviceRepository
 from athlos.modules.identity.infrastructure.jwt_token_issuer import PyJwtTokenIssuer
 from athlos.modules.identity.infrastructure.password_hasher import Argon2PasswordHasher
 from athlos.modules.identity.infrastructure.repository import SqlAlchemyUserRepository
@@ -69,3 +78,27 @@ def get_current_user(
     if user is None:
         raise InvalidTokenError()
     return user
+
+
+def get_device_repository(session: Session = Depends(get_session)) -> DeviceRepository:
+    return SqlAlchemyDeviceRepository(session)
+
+
+def get_register_device_handler(
+    uow: UnitOfWork = Depends(get_unit_of_work),
+    devices: DeviceRepository = Depends(get_device_repository),
+) -> RegisterDeviceHandler:
+    return RegisterDeviceHandler(uow, devices)
+
+
+def get_list_user_devices_handler(
+    devices: DeviceRepository = Depends(get_device_repository),
+) -> ListUserDevicesHandler:
+    return ListUserDevicesHandler(devices)
+
+
+def get_unlink_device_handler(
+    uow: UnitOfWork = Depends(get_unit_of_work),
+    devices: DeviceRepository = Depends(get_device_repository),
+) -> UnlinkDeviceHandler:
+    return UnlinkDeviceHandler(uow, devices)

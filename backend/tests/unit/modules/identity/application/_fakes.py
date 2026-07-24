@@ -2,9 +2,15 @@
 
 import uuid
 
-from athlos.modules.identity.application.ports import PasswordHasher, TokenIssuer, UserRepository
+from athlos.modules.identity.application.ports import (
+    DeviceRepository,
+    PasswordHasher,
+    TokenIssuer,
+    UserRepository,
+)
+from athlos.modules.identity.domain.device import Device
 from athlos.modules.identity.domain.user import User
-from athlos.modules.identity.domain.value_objects import Email, PasswordHash, UserId
+from athlos.modules.identity.domain.value_objects import DeviceId, Email, PasswordHash, UserId
 from athlos.platform.application.unit_of_work import UnitOfWork
 
 
@@ -68,3 +74,24 @@ class FakeTokenIssuer(TokenIssuer):
 
     def verify(self, token: str) -> UserId:
         return UserId(uuid.UUID(token))
+
+
+class InMemoryDeviceRepository(DeviceRepository):
+    def __init__(self) -> None:
+        self.devices: dict[UserId, list[Device]] = {}
+        self.add_calls: list[Device] = []
+        self.remove_calls: list[Device] = []
+
+    def add(self, device: Device) -> None:
+        self.devices.setdefault(device.user_id, []).append(device)
+        self.add_calls.append(device)
+
+    def remove(self, device: Device) -> None:
+        self.devices.get(device.user_id, []).remove(device)
+        self.remove_calls.append(device)
+
+    def get_by_user_and_device_id(self, user_id: UserId, device_id: DeviceId) -> Device | None:
+        return next((d for d in self.devices.get(user_id, []) if d.device_id == device_id), None)
+
+    def get_by_user(self, user_id: UserId) -> list[Device]:
+        return list(self.devices.get(user_id, []))

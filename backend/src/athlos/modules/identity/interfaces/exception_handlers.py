@@ -14,6 +14,7 @@ from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
 
 from athlos.modules.identity.domain.exceptions import (
+    DeviceNotFoundError,
     EmailAlreadyRegisteredError,
     InvalidCredentialsError,
     InvalidEmailError,
@@ -61,4 +62,11 @@ def register(app: FastAPI) -> None:
             status_code=status.HTTP_401_UNAUTHORIZED,
             content={"detail": str(exc)},
             headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    @app.exception_handler(DeviceNotFoundError)
+    def _handle_device_not_found(_request: Request, exc: DeviceNotFoundError) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND,
+            content={"detail": str(exc)},
         )
