@@ -11,9 +11,10 @@ from athlos.modules.identity.application.register_user import (
 )
 from athlos.modules.identity.domain.exceptions import EmailAlreadyRegisteredError
 from athlos.modules.identity.domain.user import AccountStatus
-from athlos.modules.identity.domain.value_objects import Email, UserId
+from athlos.modules.identity.domain.value_objects import Email
 from athlos.modules.identity.infrastructure.password_hasher import Argon2PasswordHasher
 from athlos.modules.identity.infrastructure.repository import SqlAlchemyUserRepository
+from athlos.platform.domain.user_id import UserId
 from athlos.platform.infrastructure.outbox.models import OutboxMessage
 from athlos.platform.infrastructure.unit_of_work import SqlAlchemyUnitOfWork
 

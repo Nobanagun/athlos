@@ -19,7 +19,7 @@ from athlos.modules.identity.application.unlink_device import (
     UnlinkDeviceHandler,
 )
 from athlos.modules.identity.domain.user import User
-from athlos.modules.identity.domain.value_objects import DeviceId, UserId
+from athlos.modules.identity.domain.value_objects import DeviceId
 from athlos.modules.identity.interfaces.dependencies import (
     get_current_user,
     get_current_user_id,
@@ -38,6 +38,7 @@ from athlos.modules.identity.interfaces.schemas import (
     RegisterUserResponse,
     UserResponse,
 )
+from athlos.platform.domain.user_id import UserId
 
 router = APIRouter(tags=["identity"])
 

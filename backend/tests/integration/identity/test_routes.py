@@ -12,9 +12,10 @@ from sqlalchemy.orm import Session
 
 from athlos.api.dependencies import get_session
 from athlos.api.main import app
-from athlos.modules.identity.domain.value_objects import Email, UserId
+from athlos.modules.identity.domain.value_objects import Email
 from athlos.modules.identity.infrastructure.repository import SqlAlchemyUserRepository
 from athlos.modules.identity.interfaces.dependencies import get_user_repository
+from athlos.platform.domain.user_id import UserId
 from athlos.platform.infrastructure.outbox.models import OutboxMessage
 
 

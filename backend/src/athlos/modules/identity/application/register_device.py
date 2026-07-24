@@ -5,8 +5,9 @@ from datetime import datetime
 
 from athlos.modules.identity.application.ports import DeviceRepository
 from athlos.modules.identity.domain.device import Device
-from athlos.modules.identity.domain.value_objects import DeviceId, UserId
+from athlos.modules.identity.domain.value_objects import DeviceId
 from athlos.platform.application.unit_of_work import UnitOfWork
+from athlos.platform.domain.user_id import UserId
 
 
 @dataclass(frozen=True)

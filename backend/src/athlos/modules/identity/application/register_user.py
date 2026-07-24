@@ -5,8 +5,9 @@ from dataclasses import dataclass
 from athlos.modules.identity.application.ports import PasswordHasher, UserRepository
 from athlos.modules.identity.domain.exceptions import EmailAlreadyRegisteredError, WeakPasswordError
 from athlos.modules.identity.domain.user import User
-from athlos.modules.identity.domain.value_objects import Email, UserId
+from athlos.modules.identity.domain.value_objects import Email
 from athlos.platform.application.unit_of_work import UnitOfWork
+from athlos.platform.domain.user_id import UserId
 
 MIN_PASSWORD_LENGTH = 8
 

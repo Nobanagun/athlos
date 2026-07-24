@@ -2,7 +2,7 @@
 
 from athlos.modules.identity.application.ports import DeviceRepository
 from athlos.modules.identity.domain.device import Device
-from athlos.modules.identity.domain.value_objects import UserId
+from athlos.platform.domain.user_id import UserId
 
 
 class ListUserDevicesHandler:

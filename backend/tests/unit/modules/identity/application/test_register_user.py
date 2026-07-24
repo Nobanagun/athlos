@@ -7,7 +7,7 @@ from athlos.modules.identity.application.register_user import (
     RegisterUserHandler,
 )
 from athlos.modules.identity.domain.exceptions import EmailAlreadyRegisteredError, WeakPasswordError
-from athlos.modules.identity.domain.value_objects import UserId
+from athlos.platform.domain.user_id import UserId
 from tests.unit.modules.identity.application._fakes import (
     FakePasswordHasher,
     FakeUnitOfWork,

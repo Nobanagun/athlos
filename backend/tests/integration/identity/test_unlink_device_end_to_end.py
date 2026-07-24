@@ -18,8 +18,9 @@ from athlos.modules.identity.application.unlink_device import (
     UnlinkDeviceCommand,
     UnlinkDeviceHandler,
 )
-from athlos.modules.identity.domain.value_objects import DeviceId, UserId
+from athlos.modules.identity.domain.value_objects import DeviceId
 from athlos.modules.identity.infrastructure.device_repository import SqlAlchemyDeviceRepository
+from athlos.platform.domain.user_id import UserId
 from athlos.platform.infrastructure.outbox.models import OutboxMessage
 from athlos.platform.infrastructure.unit_of_work import SqlAlchemyUnitOfWork
 

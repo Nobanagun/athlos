@@ -4,7 +4,8 @@ from abc import ABC, abstractmethod
 
 from athlos.modules.identity.domain.device import Device
 from athlos.modules.identity.domain.user import User
-from athlos.modules.identity.domain.value_objects import DeviceId, Email, PasswordHash, UserId
+from athlos.modules.identity.domain.value_objects import DeviceId, Email, PasswordHash
+from athlos.platform.domain.user_id import UserId
 
 
 class UserRepository(ABC):

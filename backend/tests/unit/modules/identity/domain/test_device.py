@@ -8,7 +8,8 @@ import uuid
 
 from athlos.modules.identity.domain.device import Device
 from athlos.modules.identity.domain.events import DeviceLinked, DeviceUnlinked
-from athlos.modules.identity.domain.value_objects import DeviceId, UserId
+from athlos.modules.identity.domain.value_objects import DeviceId
+from athlos.platform.domain.user_id import UserId
 
 _DEVICE_ID = DeviceId(uuid.uuid4())
 _USER_ID = UserId.generate()

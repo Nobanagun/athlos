@@ -7,8 +7,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from athlos.modules.identity.domain.device import Device
-from athlos.modules.identity.domain.value_objects import DeviceId, UserId
+from athlos.modules.identity.domain.value_objects import DeviceId
 from athlos.modules.identity.infrastructure.device_repository import SqlAlchemyDeviceRepository
+from athlos.platform.domain.user_id import UserId
 
 
 def test_add_and_get_by_user_and_device_id_roundtrip_preserves_value_objects(
