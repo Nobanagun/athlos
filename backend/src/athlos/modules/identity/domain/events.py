@@ -18,3 +18,23 @@ class UserRegistered(DomainEvent):
 
     user_id: str
     email: str
+
+
+@dataclass(frozen=True, kw_only=True)
+class DeviceLinked(DomainEvent):
+    """A device was linked to a user. Fields are plain `str`, not value
+    objects - same reason as `UserRegistered`.
+    """
+
+    device_link_id: str
+    device_id: str
+    user_id: str
+
+
+@dataclass(frozen=True, kw_only=True)
+class DeviceUnlinked(DomainEvent):
+    """A device was unlinked from a user."""
+
+    device_link_id: str
+    device_id: str
+    user_id: str

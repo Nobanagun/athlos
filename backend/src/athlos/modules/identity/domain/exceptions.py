@@ -58,3 +58,17 @@ class InvalidTokenError(Exception):
 
     def __init__(self) -> None:
         super().__init__("Invalid or expired authentication token.")
+
+
+class DeviceNotFoundError(Exception):
+    """Raised when unlinking a device that does not exist, or does not
+    belong to the authenticated user.
+
+    Deliberately generic in both cases - does not distinguish "no such
+    device_id at all" from "exists, but linked to a different user", to
+    avoid leaking whether a given device_id is linked to another account
+    (same anti-enumeration criterion as `InvalidCredentialsError`).
+    """
+
+    def __init__(self) -> None:
+        super().__init__("Device not found.")

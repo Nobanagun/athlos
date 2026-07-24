@@ -9,7 +9,7 @@
 ## Estado actual
 
 Fase 1 (bootstrap del backend, PR #1) y Fase 2 (shared kernel de
-`platform/`, PR #2) completadas. **Fase 3 en curso — cuatro incrementos de
+`platform/`, PR #2) completadas. **Fase 3 — cinco incrementos de
 `identity` implementados**: (1) dominio + aplicación (`User`, `UserId`,
 `Email`, `AccountStatus` solo `ACTIVE`, `UserRegistered`,
 `UserRepository`, `RegisterUserHandler`); (2) infraestructura de
@@ -19,10 +19,20 @@ persistencia real (`SqlAlchemyUserRepository`, mapeo declarativo de
 real del proyecto, `POST /users`; (4) **autenticación JWT stateless** —
 `User` gana `password_hash` (Argon2id vía `argon2-cffi`), `POST /users`
 ahora exige contraseña, `POST /login` emite un JWT (`PyJWT`/HS256, TTL de
-1h, sin refresh/rotación/revocación) y `GET /users/me` es el primer (y
-único, por ahora) endpoint protegido, resuelto vía la dependencia
-`get_current_user`. Sigue **sin dispositivos vinculados** — siguiente
-incremento de la Fase 3, que sigue sin cerrarse.
+1h, sin refresh/rotación/revocación) y `GET /users/me` es el primer
+endpoint protegido, resuelto vía la dependencia `get_current_user`; (5)
+**dispositivos vinculados** — nuevo agregado `Device` (identidad propia
+`DeviceLinkId`, generado por el servidor; `device_id` lo aporta el
+cliente, único por `(device_id, user_id)`, no globalmente), `POST
+/devices`, `GET /devices` y `DELETE /devices/{device_id}` protegidos con
+el mismo JWT, registro idempotente, eventos `DeviceLinked`/
+`DeviceUnlinked` vía outbox (el borrado incluido, sin tocar
+`platform/`). **Con este incremento, los criterios de finalización de la
+Fase 3 declarados en `ROADMAP.md` quedan cubiertos** — alta de usuario,
+autenticación básica y registro de dispositivo end-to-end, Repository
+Pattern/Unit of Work sobre el shared kernel, tests de integración. El
+cierre formal del marcador de fase en `ROADMAP.md` (`⏳` → `✅`) sigue
+pendiente como decisión de proceso separada.
 
 **Corrección puntual en el shared kernel**: se encontró y arregló un bug
 real en `AggregateRoot` (`platform/domain/entity.py`) — un agregado
@@ -32,7 +42,7 @@ carecía de `_domain_events` y `.domain_events`/`record_event()`/
 para el análisis completo, la alternativa descartada y la verificación
 empírica previa a implementar.
 
-**79 tests en total en el backend, todos en verde.**
+**112 tests en total en el backend, todos en verde.**
 
 Ver [`ROADMAP.md`](ROADMAP.md) para las fases siguientes y
 [`docs/agent/OPEN_QUESTIONS.md`](agent/OPEN_QUESTIONS.md) para
@@ -91,26 +101,37 @@ athlos/
   módulos siguen siendo placeholders con docstring** (`training`,
   `recovery`, `planning`, `coaching`, `analytics`, `sync`,
   `integrations`).
-- **`identity` (Fase 3, incrementos 1-4)**: `domain/` gana `PasswordHash`
-  (value object, sin validación propia), `User` con `password_hash`, y
+- **`identity` (Fase 3, incrementos 1-5)**: `domain/` gana `PasswordHash`
+  (value object, sin validación propia), `User` con `password_hash`,
   `WeakPasswordError`/`InvalidCredentialsError`/`InvalidTokenError`
-  (incremento 4, además de `InvalidEmailError` del incremento 3).
-  `application/` gana los puertos `PasswordHasher`/`TokenIssuer`,
+  (incremento 4, además de `InvalidEmailError` del incremento 3), y el
+  agregado `Device` (incremento 5, identidad `DeviceLinkId` generada por
+  el servidor, campos `device_id`/`user_id`/`registered_at`,
+  `DeviceNotFoundError`). `application/` gana los puertos
+  `PasswordHasher`/`TokenIssuer`/`DeviceRepository`,
   `RegisterUserHandler` actualizado (hashea y valida fortaleza mínima de
-  8 caracteres) y `LoginUserHandler` nuevo (sin `UnitOfWork` - operación
-  de solo lectura). `infrastructure/` gana `Argon2PasswordHasher`
-  (Argon2id vía `argon2-cffi`) y `PyJwtTokenIssuer` (HS256, TTL de 1h),
-  además de la columna `password_hash` en `_MappedUser`; el resto
-  (`SqlAlchemyUserRepository`, restricción `UNIQUE` sobre `users.email`)
-  sin cambios desde el incremento 2. **`interfaces/`**: `POST /users`
-  (incremento 3) ahora exige `password`; `POST /login` y `GET /users/me`
-  nuevos (incremento 4, único endpoint protegido por ahora, vía la
-  dependencia `get_current_user`) — `routes.py`, `dependencies.py`,
-  `schemas.py` (Pydantic, solo aquí), y `exception_handlers.py` (traduce
-  `InvalidEmailError`→422, `EmailAlreadyRegisteredError`→409,
-  `WeakPasswordError`→422, `InvalidCredentialsError`→401,
-  `InvalidTokenError`→401; deja `IntegrityError` de condición de carrera
-  sin traducir, propaga como 500 — decisión deliberada, ver
+  8 caracteres), `LoginUserHandler` (sin `UnitOfWork` - solo lectura), y
+  `RegisterDeviceHandler`/`ListUserDevicesHandler`/`UnlinkDeviceHandler`
+  (incremento 5; registro idempotente por `(device_id, user_id)`).
+  `infrastructure/` gana `Argon2PasswordHasher` (Argon2id vía
+  `argon2-cffi`), `PyJwtTokenIssuer` (HS256, TTL de 1h), la columna
+  `password_hash` en `_MappedUser`, y (incremento 5) `_MappedDevice`
+  (tabla `devices`, `UNIQUE(device_id, user_id)`) con
+  `SqlAlchemyDeviceRepository` y `UtcDateTimeType` (normaliza
+  `registered_at` a UTC-naive al guardar y reconstruye `tzinfo=UTC` al
+  leer - SQLite descarta el offset de zona horaria incluso con
+  `timezone=True`); el resto (`SqlAlchemyUserRepository`, restricción
+  `UNIQUE` sobre `users.email`) sin cambios desde el incremento 2.
+  **`interfaces/`**: `POST /users` (incremento 3) exige `password`
+  desde el incremento 4; `POST /login` y `GET /users/me` (incremento 4);
+  `POST /devices`/`GET /devices`/`DELETE /devices/{device_id}`
+  (incremento 5, protegidos con el mismo JWT) — `routes.py`,
+  `dependencies.py`, `schemas.py` (Pydantic, solo aquí), y
+  `exception_handlers.py` (traduce `InvalidEmailError`→422,
+  `EmailAlreadyRegisteredError`→409, `WeakPasswordError`→422,
+  `InvalidCredentialsError`→401, `InvalidTokenError`→401,
+  `DeviceNotFoundError`→404; deja `IntegrityError` de condición de
+  carrera sin traducir, propaga como 500 — decisión deliberada, ver
   `DECISIONS.md`).
 - **`platform/` (shared kernel) ya tiene implementación real** (Fase 2):
   `Entity`/`AggregateRoot`/`ValueObject`/`DomainEvent` (dominio puro, sin
@@ -172,15 +193,17 @@ athlos/
 
 ## Próximo objetivo
 
-Autenticación JWT stateless implementada (incremento 4 de Fase 3,
-`POST /login` + `GET /users/me`) — 79 tests en total en el backend,
-todos en verde. Pendiente, en orden: (1) **dispositivos vinculados**,
-siguiente incremento aprobado de la Fase 3 - la Fase 3 no se considera
-cerrada hasta completarlo (decisión ya tomada, no sujeta a
-reevaluación); (2) el resto de la Fase 1 (CI, servicios Docker reales,
+Dispositivos vinculados implementados (incremento 5 de Fase 3, `POST
+/devices` + `GET /devices` + `DELETE /devices/{device_id}`) — 112 tests
+en total en el backend, todos en verde. Con esto, los criterios de
+finalización de la Fase 3 declarados en `ROADMAP.md` quedan cubiertos;
+el cierre formal del marcador de fase sigue pendiente de revisión y
+aprobación. Pendiente, en orden: (1) confirmar el cierre de la Fase 3 y,
+con ello, si el siguiente trabajo pasa a la Fase 4 (`training`) —
+decisión ya tomada de que no empieza hasta cerrar la Fase 3 por
+completo; (2) el resto de la Fase 1 (CI, servicios Docker reales,
 bootstrap de la app móvil) y, con Postgres real disponible, generar la
-primera migración real y re-validar outbox + restricción `UNIQUE`
-contra él; (3) traducción de `IntegrityError` por condición de carrera,
-deliberadamente fuera de alcance hasta ahora (ver `DECISIONS.md`). La
-Fase 4 (`training`) no comienza hasta cerrar la Fase 3 por completo
-(decisión ya tomada). Ver `ROADMAP.md`.
+primera migración real y re-validar outbox + restricciones `UNIQUE`
+(`users.email`, `devices(device_id, user_id)`) contra él; (3)
+traducción de `IntegrityError` por condición de carrera, deliberadamente
+fuera de alcance hasta ahora (ver `DECISIONS.md`). Ver `ROADMAP.md`.

@@ -647,6 +647,128 @@ no una desactivación general de la regla.
 
 ---
 
+## 2026-07-24 — Fase 3 (incremento 5): `identity` — dispositivos vinculados
+
+**Decisión**: se implementa el registro de dispositivos vinculados a un
+usuario — `POST /devices`, `GET /devices`, `DELETE /devices/{device_id}`,
+los tres protegidos con el JWT del incremento 4. **Alcance
+deliberadamente acotado a metadatos de dispositivo**: sin refresh
+tokens, sin rotación, sin revocación ni ningún otro estado de sesión —
+esa ampliación, si hace falta, es un incremento propio y explícito
+futuro, no parte de este. Con esto, los tres criterios de finalización
+de la Fase 3 listados en `ROADMAP.md` (alta de usuario, autenticación
+básica, registro de dispositivo) quedan cubiertos.
+
+**Modelo de dominio — `Device` como agregado propio, no una entidad hija
+de `User`**: tiene ciclo de vida propio (vincular/desvincular) y
+cardinalidad variable por usuario, a diferencia de `password_hash` (1:1
+con `User`, ya resuelto sin agregado separado en el incremento 4). Único
+campo de identificación aportado por el cliente: `device_id`
+(`DeviceId`, value object que envuelve `uuid.UUID`, sin `.generate()` —
+a diferencia de `UserId`, aquí el servidor nunca genera el valor, solo
+lo registra). Metadatos deliberadamente mínimos: `device_id`, `user_id`,
+`registered_at` — sin `platform` ni `name` en este incremento; se
+ampliará mediante una migración específica si una necesidad real de
+mostrar información al usuario lo justifica.
+
+**Unicidad compuesta `(device_id, user_id)`, no `device_id` global**: el
+mismo `device_id` físico puede vincularse a varios usuarios distintos
+(dispositivo compartido, varias cuentas de prueba en el mismo
+emulador). Registrar de nuevo el mismo par es idempotente: no crea una
+fila nueva, no re-emite `DeviceLinked`, devuelve los datos del vínculo
+ya existente.
+
+**Identidad del agregado: `DeviceLinkId` (generado por el servidor), no
+`device_id`**: consecuencia directa de la unicidad compuesta —
+`AggregateRoot[T]` (`platform/domain/entity.py`) exige que `T`
+identifique de forma única cada instancia, y con la unicidad compuesta
+`device_id` por sí solo ya no lo garantiza (dos vínculos de usuarios
+distintos podrían compartir `device_id` y compararse como "iguales" por
+la igualdad de `Entity`, que se basa en el id). `DeviceLinkId` sigue el
+mismo patrón que `UserId` (envuelve `uuid.UUID`, con `.generate()`).
+**No se tocó `platform/`** — la ambigüedad se resolvió enteramente
+dentro de `identity/domain`.
+
+**`DeviceLinkId` es una identidad interna, nunca se expone por HTTP**:
+`DELETE /devices/{device_id}` usa el `device_id` que el propio cliente
+ya conoce (el que generó y envió al registrar), resuelto internamente
+como `(user_id autenticado, device_id)` — el cliente no necesita
+persistir un segundo identificador asignado por el servidor solo para
+poder desvincularse. `DeviceResponse` tampoco incluye `DeviceLinkId`.
+
+**`DeviceNotFoundError` deliberadamente genérica**: un `device_id` que
+no existe y uno que existe pero pertenece a otro usuario devuelven el
+mismo 404 — mismo criterio anti-enumeración ya aplicado a
+`InvalidCredentialsError` en el incremento 4 (no revelar si un
+`device_id` concreto está vinculado a otra cuenta).
+
+**`DeviceLinked`/`DeviceUnlinked` vía outbox, simétrico a la creación**:
+`Device.register()` y `Device.unlink()` registran su evento
+correspondiente antes de que `UnlinkDeviceHandler` llame a
+`devices.remove()` (`session.delete()` sobre la instancia mapeada ya
+cargada). **Verificado explícitamente antes de implementar** (no solo
+razonado): `SqlAlchemyUnitOfWork._tracked_aggregates()`
+(`platform/infrastructure/unit_of_work.py`) ya incluye `session.deleted`
+en `session.new | session.dirty | session.deleted`, así que un agregado
+borrado se recoge exactamente igual que uno nuevo o modificado — su
+evento pendiente se escribe en el outbox en la misma transacción que el
+borrado real. **No se tocó `platform/`**: primer caso real en el
+proyecto que ejercita esa rama del mecanismo, confirmando que el diseño
+de Fase 2 ya la contemplaba sin necesitar cambios.
+
+**`RegisterDeviceHandler` devuelve un DTO propio (`DeviceLinkResult`),
+no el agregado `Device`**: laguna real detectada durante la
+implementación, no prevista en el diseño — `DeviceResponse` necesita
+`registered_at`, que la ruta no conoce por sí sola (a diferencia de
+`device_id`, ya presente en el request) y que devolver solo `DeviceLinkId`
+(mismo patrón que `RegisterUserHandler` devolviendo solo `UserId`) no
+resuelve. Alternativas descartadas: devolver el agregado `Device`
+completo (filtraría su lista de eventos ya "gastados" fuera de la capa
+de aplicación, exactamente lo que el patrón de `RegisterUserHandler` ya
+evita) y hacer una consulta adicional desde la ruta tras el `handle()`
+(coste de una query extra por registro sin necesidad). `DeviceLinkResult`
+vive en `application/register_device.py`, no en `interfaces/` — es el
+contrato de retorno del handler, independiente de cualquier detalle
+HTTP.
+
+**Bug real encontrado durante la implementación (no una decisión de
+arquitectura): pérdida de `tzinfo` en `registered_at` al pasar por
+SQLite**. Verificado empíricamente antes de tocar nada: una columna
+`DateTime` genérica en SQLite descarta el offset de zona horaria al
+leer, incluso con `timezone=True` (probado explícitamente: sigue
+perdiéndose). Esto rompía la idempotencia observable de `POST /devices`
+— la segunda respuesta serializaba `registered_at` con un formato
+distinto a la primera (con "Z" la instancia recién creada en memoria,
+sin "Z" la releída de la base de datos). **Solución**: `UtcDateTimeType`,
+un `TypeDecorator` más (mismo idioma ya usado en el módulo para
+`UserId`/`Email`/`PasswordHash`/`DeviceId`) que normaliza a UTC-naive al
+guardar y reconstruye `tzinfo=UTC` al leer — verificado con el mismo
+script empírico que confirmó el bug, ahora con `before == after`.
+`Device.registered_at` es así siempre timezone-aware, tanto recién
+creado como releído de la base de datos.
+
+**Consecuencias**: 33 tests nuevos (112 en total en el backend, todos en
+verde): dominio (`Device`, `DeviceId`/`DeviceLinkId`), aplicación (los
+tres handlers, con `InMemoryDeviceRepository` como doble de prueba),
+infraestructura sin base de datos no aplica aquí (a diferencia del
+incremento 4, no hay lógica de hashing/tokens que aislar) pero sí
+infraestructura con SQLite real (incluida la restricción `UNIQUE`
+compuesta y el roundtrip de `registered_at`), y los tres endpoints HTTP
+con idempotencia, aislamiento entre usuarios y los casos 401/404. Ruff,
+`ruff format`, mypy (`strict`) y `pre-commit` sin incidencias. Ningún
+cambio en `platform/` (`git diff main -- backend/src/athlos/platform/`
+vacío) — tanto la ambigüedad de identidad del agregado como el borrado
+con evento se resolvieron enteramente dentro de `identity/`.
+
+**Con este incremento, los criterios de finalización de la Fase 3 en
+`ROADMAP.md` quedan cubiertos** (alta de usuario, autenticación básica y
+registro de dispositivo end-to-end; Repository Pattern y Unit of Work
+del módulo sobre el shared kernel; tests de integración). `ROADMAP.md`
+sigue marcando la fase `⏳` — el cierre formal del marcador es una
+decisión de proceso pendiente, no tomada en este incremento.
+
+---
+
 ## 2026-07-24 — Fase 3 (incremento 4): `identity` — autenticación JWT stateless
 
 **Decisión**: se implementa autenticación con JWT stateless (sin

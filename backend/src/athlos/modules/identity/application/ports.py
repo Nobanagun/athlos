@@ -2,8 +2,9 @@
 
 from abc import ABC, abstractmethod
 
+from athlos.modules.identity.domain.device import Device
 from athlos.modules.identity.domain.user import User
-from athlos.modules.identity.domain.value_objects import Email, PasswordHash, UserId
+from athlos.modules.identity.domain.value_objects import DeviceId, Email, PasswordHash, UserId
 
 
 class UserRepository(ABC):
@@ -52,3 +53,22 @@ class TokenIssuer(ABC):
         expired, or signed with an unexpected key.
         """
         ...
+
+
+class DeviceRepository(ABC):
+    """Persistence port for `Device`, specific to identity - not a
+    generic repository (see docs/DECISIONS.md, Fase 2 entry, for why the
+    shared kernel does not provide one).
+    """
+
+    @abstractmethod
+    def add(self, device: Device) -> None: ...
+
+    @abstractmethod
+    def remove(self, device: Device) -> None: ...
+
+    @abstractmethod
+    def get_by_user_and_device_id(self, user_id: UserId, device_id: DeviceId) -> Device | None: ...
+
+    @abstractmethod
+    def get_by_user(self, user_id: UserId) -> list[Device]: ...

@@ -5,6 +5,7 @@ import Pydantic.
 """
 
 import uuid
+from datetime import datetime
 
 from pydantic import BaseModel
 
@@ -31,3 +32,12 @@ class LoginResponse(BaseModel):
 class UserResponse(BaseModel):
     id: uuid.UUID
     email: str
+
+
+class RegisterDeviceRequest(BaseModel):
+    device_id: uuid.UUID
+
+
+class DeviceResponse(BaseModel):
+    device_id: uuid.UUID
+    registered_at: datetime
