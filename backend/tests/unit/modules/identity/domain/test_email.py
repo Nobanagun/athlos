@@ -2,6 +2,7 @@
 
 import pytest
 
+from athlos.modules.identity.domain.exceptions import InvalidEmailError
 from athlos.modules.identity.domain.value_objects import Email
 
 
@@ -18,5 +19,5 @@ def test_equal_emails_after_normalization_are_equal() -> None:
     ["", "no-at-sign", "@example.com", "alice@", "a@b@example.com"],
 )
 def test_invalid_email_raises(invalid: str) -> None:
-    with pytest.raises(ValueError, match="Invalid email"):
+    with pytest.raises(InvalidEmailError, match="Invalid email"):
         Email(invalid)

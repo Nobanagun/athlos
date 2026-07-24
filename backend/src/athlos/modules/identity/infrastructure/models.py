@@ -15,7 +15,7 @@ from sqlalchemy.engine import Dialect
 from sqlalchemy.orm import Mapped, mapped_column
 
 from athlos.modules.identity.domain.user import AccountStatus, User
-from athlos.modules.identity.domain.value_objects import Email, UserId
+from athlos.modules.identity.domain.value_objects import Email, PasswordHash, UserId
 from athlos.platform.infrastructure.persistence.database import Base
 
 
@@ -45,6 +45,19 @@ class EmailType(TypeDecorator[Email]):
         return Email(value) if value is not None else None
 
 
+class PasswordHashType(TypeDecorator[PasswordHash]):
+    """Persists a `PasswordHash` value object as its underlying `str`."""
+
+    impl = String
+    cache_ok = True
+
+    def process_bind_param(self, value: PasswordHash | None, dialect: Dialect) -> str | None:
+        return value.value if value is not None else None
+
+    def process_result_value(self, value: str | None, dialect: Dialect) -> PasswordHash | None:
+        return PasswordHash(value) if value is not None else None
+
+
 class _MappedUser(User, Base):
     """Private ORM mapping of `User` - never import this outside
     `identity/infrastructure/`. `User` comes first in the base list so
@@ -57,6 +70,7 @@ class _MappedUser(User, Base):
 
     id: Mapped[UserId] = mapped_column(UserIdType, primary_key=True)
     email: Mapped[Email] = mapped_column(EmailType, unique=True, nullable=False)
+    password_hash: Mapped[PasswordHash] = mapped_column(PasswordHashType, nullable=False)
     status: Mapped[AccountStatus] = mapped_column(Enum(AccountStatus), nullable=False)
 
     @classmethod
@@ -69,7 +83,12 @@ class _MappedUser(User, Base):
         application layer only ever calls it on the base `User` class, so
         it never produces a `_MappedUser` on its own.
         """
-        mapped = cls(id=user.id, email=user.email, status=user.status)
+        mapped = cls(
+            id=user.id,
+            email=user.email,
+            password_hash=user.password_hash,
+            status=user.status,
+        )
         for event in user.domain_events:
             mapped.record_event(event)
         return mapped

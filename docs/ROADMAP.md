@@ -98,6 +98,11 @@ módulo `sync` pueda distinguir dispositivos.
 **Criterios de finalización**
 - Alta de usuario, autenticación básica y registro de dispositivo
   funcionando end-to-end (dominio → aplicación → infraestructura → API).
+  **El tramo dominio → aplicación → infraestructura → API ya está
+  cubierto para el alta de usuario** (`POST /users`, incremento 3) **y
+  para la autenticación básica** (`POST /login` + `GET /users/me` con
+  JWT stateless, incremento 4); registro de dispositivo sigue pendiente
+  — ver `DECISIONS.md` para el desglose completo en incrementos.
 - Repository Pattern y Unit of Work del módulo implementados sobre el
   shared kernel de la Fase 2.
 - Tests de integración del módulo.

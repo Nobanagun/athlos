@@ -1,13 +1,20 @@
 """Application entrypoint.
 
-Compone la app FastAPI. Solo expone verificación de arranque (`/health`);
-el registro de routers de cada módulo de negocio llega en fases
-posteriores, cuando existan casos de uso reales que exponer.
+Composition root: creates the FastAPI app and wires each module's own
+router and exception handlers. Contains no business logic itself - just
+orchestration. Each module owns and exposes what it needs; this file
+only calls it.
 """
 
 from fastapi import FastAPI
 
+from athlos.modules.identity.interfaces import exception_handlers as identity_exception_handlers
+from athlos.modules.identity.interfaces.routes import router as identity_router
+
 app = FastAPI(title="Athlos")
+
+app.include_router(identity_router)
+identity_exception_handlers.register(app)
 
 
 @app.get("/health")

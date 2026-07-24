@@ -6,18 +6,21 @@ backend/tests/unit/platform/ (Fase 2) - not repeated here.
 
 from athlos.modules.identity.domain.events import UserRegistered
 from athlos.modules.identity.domain.user import AccountStatus, User
-from athlos.modules.identity.domain.value_objects import Email
+from athlos.modules.identity.domain.value_objects import Email, PasswordHash
+
+_PASSWORD_HASH = PasswordHash("$argon2id$fake-hash-for-tests")
 
 
 def test_register_creates_an_active_user() -> None:
-    user = User.register(Email("alice@example.com"))
+    user = User.register(Email("alice@example.com"), _PASSWORD_HASH)
 
     assert user.status is AccountStatus.ACTIVE
     assert user.email == Email("alice@example.com")
+    assert user.password_hash == _PASSWORD_HASH
 
 
 def test_register_records_exactly_one_user_registered_event() -> None:
-    user = User.register(Email("alice@example.com"))
+    user = User.register(Email("alice@example.com"), _PASSWORD_HASH)
 
     events = user.domain_events
     assert len(events) == 1
@@ -28,7 +31,7 @@ def test_register_records_exactly_one_user_registered_event() -> None:
 
 
 def test_two_registrations_produce_different_user_ids() -> None:
-    first = User.register(Email("alice@example.com"))
-    second = User.register(Email("bob@example.com"))
+    first = User.register(Email("alice@example.com"), _PASSWORD_HASH)
+    second = User.register(Email("bob@example.com"), _PASSWORD_HASH)
 
     assert first.id != second.id

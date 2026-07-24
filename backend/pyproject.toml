@@ -15,6 +15,11 @@ dependencies = [
     "psycopg[binary,pool]~=3.3.4",
     "redis~=8.0.1",
     "pydantic~=2.13.4",
+    # Añadidos 2026-07-24 (Fase 3, incremento de autenticación JWT
+    # stateless), versiones verificadas contra PyPI ese mismo día - ver
+    # docs/DECISIONS.md.
+    "argon2-cffi~=25.1.0",
+    "pyjwt~=2.13.0",
 ]
 
 [dependency-groups]
@@ -40,6 +45,12 @@ src = ["src", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "N"]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI's dependency injection idiom requires calling Depends() (and
+# similar) in an argument default - not the mutable-default footgun B008
+# otherwise warns about.
+extend-immutable-calls = ["fastapi.Depends"]
 
 [tool.ruff.format]
 quote-style = "double"

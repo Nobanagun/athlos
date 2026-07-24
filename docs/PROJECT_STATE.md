@@ -1,6 +1,6 @@
 # Project State
 
-> Última actualización: 2026-07-23
+> Última actualización: 2026-07-24
 > Este documento es la fuente de verdad sobre el estado real del proyecto.
 > Debe actualizarse cada vez que cambie algo significativo (stack, estructura,
 > fase actual). Si este documento contradice el código, el código manda —
@@ -9,15 +9,20 @@
 ## Estado actual
 
 Fase 1 (bootstrap del backend, PR #1) y Fase 2 (shared kernel de
-`platform/`, PR #2) completadas. **Fase 3 en curso — dos incrementos de
+`platform/`, PR #2) completadas. **Fase 3 en curso — cuatro incrementos de
 `identity` implementados**: (1) dominio + aplicación (`User`, `UserId`,
 `Email`, `AccountStatus` solo `ACTIVE`, `UserRegistered`,
 `UserRepository`, `RegisterUserHandler`); (2) infraestructura de
 persistencia real (`SqlAlchemyUserRepository`, mapeo declarativo de
 `User` vía subclase + `TypeDecorator` para `UserId`/`Email`, restricción
-`UNIQUE` de email real). Sigue **sin autenticación** (sin login, JWT,
-contraseñas, sesiones ni dispositivos vinculados) y **sin HTTP todavía**
-(`identity/interfaces/` sigue siendo placeholder).
+`UNIQUE` de email real); (3) `identity/interfaces` — primer endpoint HTTP
+real del proyecto, `POST /users`; (4) **autenticación JWT stateless** —
+`User` gana `password_hash` (Argon2id vía `argon2-cffi`), `POST /users`
+ahora exige contraseña, `POST /login` emite un JWT (`PyJWT`/HS256, TTL de
+1h, sin refresh/rotación/revocación) y `GET /users/me` es el primer (y
+único, por ahora) endpoint protegido, resuelto vía la dependencia
+`get_current_user`. Sigue **sin dispositivos vinculados** — siguiente
+incremento de la Fase 3, que sigue sin cerrarse.
 
 **Corrección puntual en el shared kernel**: se encontró y arregló un bug
 real en `AggregateRoot` (`platform/domain/entity.py`) — un agregado
@@ -25,8 +30,9 @@ reconstruido por SQLAlchemy desde una fila (no construido en Python)
 carecía de `_domain_events` y `.domain_events`/`record_event()`/
 `clear_domain_events()` lanzaban `AttributeError`. Ver `DECISIONS.md`
 para el análisis completo, la alternativa descartada y la verificación
-empírica previa a implementar. 46 tests en total en el backend, todos en
-verde.
+empírica previa a implementar.
+
+**79 tests en total en el backend, todos en verde.**
 
 Ver [`ROADMAP.md`](ROADMAP.md) para las fases siguientes y
 [`docs/agent/OPEN_QUESTIONS.md`](agent/OPEN_QUESTIONS.md) para
@@ -85,19 +91,27 @@ athlos/
   módulos siguen siendo placeholders con docstring** (`training`,
   `recovery`, `planning`, `coaching`, `analytics`, `sync`,
   `integrations`).
-- **`identity` (Fase 3, incrementos 1 y 2)**: `domain/` (`User`,
-  `UserId`, `Email`, `AccountStatus`, `UserRegistered`,
-  `EmailAlreadyRegisteredError`) y `application/` (`UserRepository`,
-  `RegisterUserHandler`) sin cambios desde el incremento 1.
-  **`infrastructure/` ya tiene implementación real**: `models.py`
-  (`UserIdType`/`EmailType` como `TypeDecorator`, `_MappedUser` — subclase
-  declarativa privada de `User`) y `repository.py`
-  (`SqlAlchemyUserRepository`). Restricción `UNIQUE` real sobre
-  `users.email` — cierra el riesgo de unicidad no atómica del incremento
-  1 (la comprobación de aplicación `EmailAlreadyRegisteredError` sigue
-  existiendo para buen UX, pero ya no es la única garantía; ver
-  `DECISIONS.md`). `identity/interfaces/` sigue siendo placeholder — sin
-  HTTP todavía.
+- **`identity` (Fase 3, incrementos 1-4)**: `domain/` gana `PasswordHash`
+  (value object, sin validación propia), `User` con `password_hash`, y
+  `WeakPasswordError`/`InvalidCredentialsError`/`InvalidTokenError`
+  (incremento 4, además de `InvalidEmailError` del incremento 3).
+  `application/` gana los puertos `PasswordHasher`/`TokenIssuer`,
+  `RegisterUserHandler` actualizado (hashea y valida fortaleza mínima de
+  8 caracteres) y `LoginUserHandler` nuevo (sin `UnitOfWork` - operación
+  de solo lectura). `infrastructure/` gana `Argon2PasswordHasher`
+  (Argon2id vía `argon2-cffi`) y `PyJwtTokenIssuer` (HS256, TTL de 1h),
+  además de la columna `password_hash` en `_MappedUser`; el resto
+  (`SqlAlchemyUserRepository`, restricción `UNIQUE` sobre `users.email`)
+  sin cambios desde el incremento 2. **`interfaces/`**: `POST /users`
+  (incremento 3) ahora exige `password`; `POST /login` y `GET /users/me`
+  nuevos (incremento 4, único endpoint protegido por ahora, vía la
+  dependencia `get_current_user`) — `routes.py`, `dependencies.py`,
+  `schemas.py` (Pydantic, solo aquí), y `exception_handlers.py` (traduce
+  `InvalidEmailError`→422, `EmailAlreadyRegisteredError`→409,
+  `WeakPasswordError`→422, `InvalidCredentialsError`→401,
+  `InvalidTokenError`→401; deja `IntegrityError` de condición de carrera
+  sin traducir, propaga como 500 — decisión deliberada, ver
+  `DECISIONS.md`).
 - **`platform/` (shared kernel) ya tiene implementación real** (Fase 2):
   `Entity`/`AggregateRoot`/`ValueObject`/`DomainEvent` (dominio puro, sin
   SQLAlchemy ni Pydantic); `UnitOfWork`/`EventBus` (contratos);
@@ -110,9 +124,14 @@ athlos/
   (`fastapi`, `uvicorn`, `sqlalchemy`, `alembic`, `psycopg`, `redis`,
   `pydantic` en runtime; `pytest`, `httpx2`, `ruff`, `mypy`, `pre-commit`
   en dev — ver `DECISIONS.md` para la justificación de cada versión).
-- `backend/src/athlos/api/main.py` expone una instancia real de FastAPI
-  con un único endpoint `GET /health` (verificación de arranque, no
-  negocio).
+- `backend/src/athlos/api/main.py` es el composition root (sin lógica de
+  negocio): expone `GET /health` y ahora también `POST /users` (incluido
+  el router de `identity` y su registro de manejadores de excepciones).
+  `api/dependencies.py` (nuevo, compartido, agnóstico de negocio):
+  `get_session()`/`get_unit_of_work()`, con inicialización perezosa del
+  engine (`functools.lru_cache`) para que importar el módulo nunca
+  requiera `DATABASE_URL`. `config/settings.py` (nuevo, mínimo): lee
+  `DATABASE_URL` de entorno, sin `pydantic-settings`.
 - Ruff, mypy (modo `strict`, sin excepciones) y pytest configurados en
   `pyproject.toml` y en verde; `pre-commit` instalado y validado contra
   un `git commit` real.
@@ -153,11 +172,15 @@ athlos/
 
 ## Próximo objetivo
 
-Infraestructura de `identity` implementada (incremento 2 de Fase 3).
-Pendiente: (1) el resto de la Fase 1 (CI, servicios Docker reales,
+Autenticación JWT stateless implementada (incremento 4 de Fase 3,
+`POST /login` + `GET /users/me`) — 79 tests en total en el backend,
+todos en verde. Pendiente, en orden: (1) **dispositivos vinculados**,
+siguiente incremento aprobado de la Fase 3 - la Fase 3 no se considera
+cerrada hasta completarlo (decisión ya tomada, no sujeta a
+reevaluación); (2) el resto de la Fase 1 (CI, servicios Docker reales,
 bootstrap de la app móvil) y, con Postgres real disponible, generar la
-primera migración real y re-validar outbox + restricción `UNIQUE` contra
-él; (2) evaluar si Fase 3 necesita más incrementos (API HTTP, auth,
-dispositivos) antes de considerarla cerrada, o si el siguiente trabajo
-pasa a `training` (Fase 4) apoyándose en un `identity` ya persistente de
-verdad. Ver `ROADMAP.md`.
+primera migración real y re-validar outbox + restricción `UNIQUE`
+contra él; (3) traducción de `IntegrityError` por condición de carrera,
+deliberadamente fuera de alcance hasta ahora (ver `DECISIONS.md`). La
+Fase 4 (`training`) no comienza hasta cerrar la Fase 3 por completo
+(decisión ya tomada). Ver `ROADMAP.md`.

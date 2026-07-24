@@ -12,6 +12,7 @@ from athlos.modules.identity.application.register_user import (
 from athlos.modules.identity.domain.exceptions import EmailAlreadyRegisteredError
 from athlos.modules.identity.domain.user import AccountStatus
 from athlos.modules.identity.domain.value_objects import Email, UserId
+from athlos.modules.identity.infrastructure.password_hasher import Argon2PasswordHasher
 from athlos.modules.identity.infrastructure.repository import SqlAlchemyUserRepository
 from athlos.platform.infrastructure.outbox.models import OutboxMessage
 from athlos.platform.infrastructure.unit_of_work import SqlAlchemyUnitOfWork
@@ -20,15 +21,16 @@ from athlos.platform.infrastructure.unit_of_work import SqlAlchemyUnitOfWork
 def test_register_user_persists_and_stages_outbox_event(session: Session) -> None:
     repo = SqlAlchemyUserRepository(session)
     uow = SqlAlchemyUnitOfWork(session)
-    handler = RegisterUserHandler(uow, repo)
+    handler = RegisterUserHandler(uow, repo, Argon2PasswordHasher())
 
-    result = handler.handle(RegisterUserCommand(email="carol@example.com"))
+    result = handler.handle(RegisterUserCommand(email="carol@example.com", password="s3cret!!"))
 
     assert isinstance(result, UserId)
 
     persisted = repo.get_by_id(result)
     assert persisted is not None
     assert persisted.email.value == "carol@example.com"
+    assert persisted.password_hash.value != "s3cret!!"
     assert persisted.status is AccountStatus.ACTIVE
 
     outbox_row = session.query(OutboxMessage).filter_by(event_type="UserRegistered").one()
@@ -42,11 +44,11 @@ def test_register_user_persists_and_stages_outbox_event(session: Session) -> Non
 def test_register_duplicate_email_raises_and_persists_nothing(session: Session) -> None:
     repo = SqlAlchemyUserRepository(session)
     uow = SqlAlchemyUnitOfWork(session)
-    handler = RegisterUserHandler(uow, repo)
-    first_id = handler.handle(RegisterUserCommand(email="dana@example.com"))
+    handler = RegisterUserHandler(uow, repo, Argon2PasswordHasher())
+    first_id = handler.handle(RegisterUserCommand(email="dana@example.com", password="s3cret!!"))
 
     with pytest.raises(EmailAlreadyRegisteredError):
-        handler.handle(RegisterUserCommand(email="dana@example.com"))
+        handler.handle(RegisterUserCommand(email="dana@example.com", password="s3cret!!"))
 
     # Still only the first user - the second attempt never reached add()/commit().
     found = repo.get_by_email(Email("dana@example.com"))

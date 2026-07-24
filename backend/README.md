@@ -6,9 +6,12 @@ infraestructura e interfaces, comunicandose con el resto del sistema a
 traves de eventos de dominio publicados de forma fiable mediante el patron
 Transactional Outbox.
 
-> Estado actual: solo existe la estructura de carpetas y los contratos
-> conceptuales (docstrings). No hay dependencias instaladas ni logica de
-> negocio implementada todavia.
+> Estado actual: shared kernel (`platform/`) y el modulo `identity`
+> (dominio, aplicacion, infraestructura de persistencia e interfaz HTTP -
+> `POST /users`) implementados y testeados. El resto de modulos
+> (`training`, `recovery`, `planning`, `coaching`, `analytics`, `sync`,
+> `integrations`) siguen siendo solo estructura de carpetas y docstrings.
+> Ver `docs/PROJECT_STATE.md` para el detalle exacto y actualizado.
 
 ## Patrones arquitectonicos
 
@@ -43,8 +46,8 @@ outbox).
 ```
 backend/
 ├── src/athlos/
-│   ├── api/            # Composicion de la app (FastAPI) - punto de entrada
-│   ├── config/          # Settings y configuracion (placeholder)
+│   ├── api/            # Composition root (FastAPI) + dependencias compartidas
+│   ├── config/          # Settings minimos (DATABASE_URL)
 │   ├── modules/          # Bounded contexts (ver tabla arriba)
 │   └── platform/         # Shared kernel
 ├── tests/                # Tests unitarios e integracion del backend
@@ -53,6 +56,10 @@ backend/
 
 ## Siguiente fase (no incluida todavia)
 
-- Elegir e instalar dependencias (FastAPI, SQLAlchemy, etc.).
-- Definir el modelo de persistencia y generar la primera migracion.
-- Implementar el primer modulo end-to-end como referencia.
+- Servicios Docker reales (Postgres) y CI (resto de la Fase 1 pendiente).
+- Primera migracion real de Alembic contra Postgres.
+- Traduccion de `IntegrityError` por condicion de carrera en `identity`
+  (deliberadamente fuera del incremento 3 - ver `docs/DECISIONS.md`).
+- Autenticacion y dispositivos vinculados en `identity` (Fase 3), o
+  avanzar a `training` (Fase 4) usando `identity` como modulo de
+  referencia ya persistente y accesible por HTTP.
