@@ -136,11 +136,13 @@ athlos/
   `DECISIONS.md`).
 - **`platform/` (shared kernel) ya tiene implementación real** (Fase 2):
   `Entity`/`AggregateRoot`/`ValueObject`/`DomainEvent` (dominio puro, sin
-  SQLAlchemy ni Pydantic); `UnitOfWork`/`EventBus` (contratos);
-  `SqlAlchemyUnitOfWork` (concreta, síncrona, con el algoritmo de commit
-  documentado en `DECISIONS.md`); `OutboxMessage` + `dispatch_pending()`
-  (Transactional Outbox); `InMemoryEventBus`. Sin repositorio genérico
-  (no se justificó todavía). Tests en `backend/tests/unit/platform/`.
+  SQLAlchemy ni Pydantic); `UserId` (identificador transversal,
+  trasladado desde `identity/domain` — ver `DECISIONS.md`);
+  `UnitOfWork`/`EventBus` (contratos); `SqlAlchemyUnitOfWork` (concreta,
+  síncrona, con el algoritmo de commit documentado en `DECISIONS.md`);
+  `OutboxMessage` + `dispatch_pending()` (Transactional Outbox);
+  `InMemoryEventBus`. Sin repositorio genérico (no se justificó
+  todavía). Tests en `backend/tests/unit/platform/`.
 - Gestor de dependencias: `uv`, con `.python-version` (3.13) y `uv.lock`
   commiteado. `pyproject.toml` declara dependencias reales y fijadas
   (`fastapi`, `uvicorn`, `sqlalchemy`, `alembic`, `psycopg`, `redis`,
