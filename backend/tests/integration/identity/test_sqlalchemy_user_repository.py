@@ -6,15 +6,17 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from athlos.modules.identity.domain.user import AccountStatus, User
-from athlos.modules.identity.domain.value_objects import Email, UserId
+from athlos.modules.identity.domain.value_objects import Email, PasswordHash, UserId
 from athlos.modules.identity.infrastructure.repository import SqlAlchemyUserRepository
 from athlos.platform.infrastructure.outbox.models import OutboxMessage
 from athlos.platform.infrastructure.unit_of_work import SqlAlchemyUnitOfWork
 
+_PASSWORD_HASH = PasswordHash("$argon2id$fake-hash-for-tests")
+
 
 def test_add_and_get_by_id_roundtrip_preserves_value_objects(session: Session) -> None:
     repo = SqlAlchemyUserRepository(session)
-    user = User.register(Email("alice@example.com"))
+    user = User.register(Email("alice@example.com"), _PASSWORD_HASH)
 
     repo.add(user)
     session.commit()
@@ -26,6 +28,7 @@ def test_add_and_get_by_id_roundtrip_preserves_value_objects(session: Session) -
     assert fetched.id == user.id
     assert isinstance(fetched.email, Email)
     assert fetched.email == Email("alice@example.com")
+    assert fetched.password_hash == _PASSWORD_HASH
     assert fetched.status is AccountStatus.ACTIVE
 
 
@@ -37,7 +40,7 @@ def test_get_by_id_returns_none_when_not_found(session: Session) -> None:
 
 def test_get_by_email_finds_normalized_match(session: Session) -> None:
     repo = SqlAlchemyUserRepository(session)
-    user = User.register(Email("Alice@Example.com"))
+    user = User.register(Email("Alice@Example.com"), _PASSWORD_HASH)
     repo.add(user)
     session.commit()
 
@@ -55,10 +58,10 @@ def test_get_by_email_returns_none_when_not_found(session: Session) -> None:
 
 def test_duplicate_email_violates_unique_constraint(session: Session) -> None:
     repo = SqlAlchemyUserRepository(session)
-    repo.add(User.register(Email("alice@example.com")))
+    repo.add(User.register(Email("alice@example.com"), _PASSWORD_HASH))
     session.commit()
 
-    repo.add(User.register(Email("alice@example.com")))
+    repo.add(User.register(Email("alice@example.com"), _PASSWORD_HASH))
     with pytest.raises(IntegrityError):
         session.commit()
 
@@ -74,7 +77,7 @@ def test_integrity_error_rolls_back_transaction_completely(engine: Engine) -> No
     with factory() as setup_session:
         setup_repo = SqlAlchemyUserRepository(setup_session)
         setup_uow = SqlAlchemyUnitOfWork(setup_session)
-        setup_repo.add(User.register(Email("alice@example.com")))
+        setup_repo.add(User.register(Email("alice@example.com"), _PASSWORD_HASH))
         setup_uow.commit()
 
     # Bypass the application-level uniqueness check entirely (simulating
@@ -82,7 +85,7 @@ def test_integrity_error_rolls_back_transaction_completely(engine: Engine) -> No
     with factory() as racing_session:
         repo = SqlAlchemyUserRepository(racing_session)
         uow = SqlAlchemyUnitOfWork(racing_session)
-        second = User.register(Email("alice@example.com"))
+        second = User.register(Email("alice@example.com"), _PASSWORD_HASH)
         repo.add(second)
 
         with pytest.raises(IntegrityError):
@@ -111,7 +114,7 @@ def test_fetched_user_domain_events_does_not_crash(engine: Engine) -> None:
     with factory() as setup_session:
         setup_repo = SqlAlchemyUserRepository(setup_session)
         setup_uow = SqlAlchemyUnitOfWork(setup_session)
-        setup_repo.add(User.register(Email("regression@example.com")))
+        setup_repo.add(User.register(Email("regression@example.com"), _PASSWORD_HASH))
         setup_uow.commit()
 
     with factory() as fresh_session:

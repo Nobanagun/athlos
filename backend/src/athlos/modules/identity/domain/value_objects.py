@@ -3,6 +3,7 @@
 import uuid
 from dataclasses import dataclass
 
+from athlos.modules.identity.domain.exceptions import InvalidEmailError
 from athlos.platform.domain.value_object import ValueObject
 
 
@@ -31,5 +32,18 @@ class Email(ValueObject):
         normalized = self.value.strip().lower()
         local, _, domain = normalized.partition("@")
         if not local or not domain or "@" in domain:
-            raise ValueError(f"Invalid email: {self.value!r}")
+            raise InvalidEmailError(self.value)
         object.__setattr__(self, "value", normalized)
+
+
+@dataclass(frozen=True)
+class PasswordHash(ValueObject):
+    """An already-hashed password.
+
+    The domain never sees a raw password - only the application layer,
+    via the `PasswordHasher` port, produces this value (see
+    docs/DECISIONS.md). No validation here: the hash's shape is entirely
+    owned by whichever algorithm produced it (infrastructure concern).
+    """
+
+    value: str

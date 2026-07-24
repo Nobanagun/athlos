@@ -549,3 +549,227 @@ inicializa bajo demanda, `clear_domain_events` es un no-op sin lista) y
 (`test_fetched_user_domain_events_does_not_crash`, con el flujo real:
 repositorio + UoW reales + sesión nueva). Cambio localizado en
 `platform/domain/entity.py` — ningún otro archivo de código tocado.
+
+---
+
+## 2026-07-24 — Fase 3 (incremento 3): `identity/interfaces` — `POST /users`
+
+**Decisión**: primer endpoint HTTP real del proyecto, exponiendo
+`RegisterUserHandler`. Establece el patrón de composición HTTP que
+seguirán todos los módulos futuros con interfaz web — no existía ninguno
+previo (`api/main.py` solo tenía `/health`).
+
+**Ruta**: `POST /users`, sin prefijo `/identity` — los límites de módulo
+son un detalle interno de organización del código, no algo que deba
+filtrarse a la superficie pública de la API.
+
+**`InvalidEmailError` sustituye a `ValueError` en `Email`**: se analizó
+exhaustivamente el uso de `ValueError` en todo el codebase antes de
+decidir — un único punto de origen (`Email.__post_init__`), y el camino
+completo de `RegisterUserHandler.handle()` no tiene ningún otro punto que
+pudiera lanzarlo por un motivo no relacionado. Aun así, se introdujo una
+excepción de dominio específica, no por necesidad inmediata sino por el
+mismo criterio ya aplicado al fix de `AggregateRoot`: capturar
+`ValueError` en la capa HTTP sería seguro *hoy*, pero es una excepción
+demasiado genérica para que ese patrón siga siendo seguro a medida que
+`identity` (o cualquier módulo) crezca — un futuro `ValueError` no
+relacionado, lanzado en el mismo camino de ejecución, se traduciría
+erróneamente como "email inválido" sin que nada lo señale.
+`InvalidEmailError` no hereda de `ValueError` — no hay nada en el
+proyecto que dependa de capturar `ValueError` genéricamente para este
+caso.
+
+**Composición de dependencias**:
+- `api/dependencies.py` (compartido, agnóstico de negocio): `get_session()`,
+  `get_unit_of_work()`. Cualquier módulo futuro con persistencia los
+  reutiliza directamente.
+- `identity/interfaces/dependencies.py` (específico del módulo):
+  `get_user_repository()`, `get_register_user_handler()`, construidos
+  sobre los anteriores.
+- **Bug encontrado y corregido durante la implementación**: crear el
+  engine/`sessionmaker` a nivel de módulo en `api/dependencies.py`
+  (código de importación, no perezoso) habría llamado a
+  `get_database_url()` en el momento de **importar** el módulo — rompiendo
+  la app entera (y los tests, que sustituyen `get_session` vía
+  `app.dependency_overrides` pero necesitan poder importarla primero) en
+  cualquier entorno sin `DATABASE_URL` configurada. Solucionado con
+  `functools.lru_cache` sobre una función que construye el
+  `sessionmaker` perezosamente, en el primer uso real, no al importar.
+
+**`exception_handlers.py` vive en `identity/interfaces/`, no en `api/`**:
+decisión ya justificada antes de implementar — un archivo centralizado en
+`api/` tendría que importar las excepciones de dominio de cada módulo,
+exactamente la dirección de acoplamiento que `ARCHITECTURE.md` prohíbe
+entre módulos de negocio. `main.py` permanece como composition root puro:
+solo crea la app, incluye el router de `identity` y llama a
+`identity_exception_handlers.register(app)` — ninguna lógica de negocio,
+ningún `@app.exception_handler` ni `Depends` se escribe directamente ahí.
+
+**`config/settings.py` mínimo**: una única función, `get_database_url()`,
+lee `DATABASE_URL` de `os.environ` — sin `pydantic-settings`, coherente
+con cómo `migrations/env.py` ya lo hacía desde Fase 2/3.
+
+**⚠️ `IntegrityError` por condición de carrera — deliberadamente no
+traducido en este incremento**: dos peticiones concurrentes pueden ambas
+superar la comprobación de `EmailAlreadyRegisteredError` antes de que
+cualquiera comitee; la segunda choca contra el `UNIQUE` real y
+`IntegrityError` se propaga sin traducir, resultando en `500`. No se
+amplía el manejador de excepciones para cubrir este caso porque (a) el
+alcance aprobado de este incremento solo cubría dos excepciones
+concretas, y (b) traducir `IntegrityError` de forma genérica a `409`
+tiene el mismo riesgo ya descartado para `ValueError`: esa excepción
+también es demasiado amplia (cualquier violación de integridad de la
+tabla, no solo el email, la dispararía). Verificado explícitamente con
+un test que reproduce el escenario de forma determinista (sin hilos
+reales): `test_race_condition_integrity_error_is_not_translated_and_surfaces_as_500`,
+sustituyendo `get_by_email` por un doble que siempre informa "no existe
+conflicto", dejando que la restricción real actúe dentro de `commit()`.
+
+**Hallazgo adicional durante la implementación**: un engine SQLite
+`:memory:` sin `poolclass=StaticPool` entrega una base de datos distinta
+por hilo — invisible en los tests de integración anteriores (todo
+síncrono, un solo hilo), pero rompía los tests de rutas porque
+`TestClient` ejecuta las dependencias síncronas de FastAPI en un hilo del
+pool de `anyio`. Corregido en
+`backend/tests/integration/identity/conftest.py` (con
+`connect_args={"check_same_thread": False}` también, necesario para
+reutilizar la misma conexión entre el hilo de test y el hilo de la
+petición).
+
+**Consecuencias**: 5 tests de integración nuevos en
+`backend/tests/integration/identity/test_routes.py` (51 en total en el
+backend); Ruff, mypy (`strict`) y `pre-commit` sin incidencias. Se añadió
+`[tool.ruff.lint.flake8-bugbear] extend-immutable-calls = ["fastapi.Depends"]`
+a `pyproject.toml` — el idioma de inyección de dependencias de FastAPI
+(`Depends(...)` como valor por defecto) es exactamente lo que la regla
+`B008` de Ruff señala como antipatrón genérico; whitelisting explícito,
+no una desactivación general de la regla.
+
+---
+
+## 2026-07-24 — Fase 3 (incremento 4): `identity` — autenticación JWT stateless
+
+**Decisión**: se implementa autenticación con JWT stateless (sin
+sesiones, sin tabla de tokens, sin refresh tokens, rotación ni
+revocación en este incremento) — `POST /login`, la dependencia
+`get_current_user` que valida el token, y `GET /users/me` como **único**
+endpoint protegido de este incremento (alcance decidido explícitamente
+para demostrar el ciclo completo login → token → acceso protegido
+end-to-end, sin añadir más superficie protegida hasta que exista un
+caso de uso real). Dispositivos vinculados quedan para el siguiente
+incremento de la Fase 3, que sigue sin cerrarse.
+
+**Modelo de credenciales — `password_hash` en el propio agregado
+`User`, sin `Credentials` separado**: se descartó explícitamente una
+entidad `Credentials` mientras exista un único método de login — mismo
+criterio de minimalismo ya aplicado a `AccountStatus` (Fase 3,
+incremento 1) y al repositorio genérico (Fase 2). `PasswordHash` es un
+value object nuevo (`identity/domain/value_objects.py`) que envuelve el
+hash ya calculado, sin ninguna validación propia — a diferencia de
+`Email`, su forma la determina por completo el algoritmo que lo produjo
+(detalle de infraestructura). `User.__init__`/`User.register()` ganan
+un parámetro `password_hash: PasswordHash`.
+
+**Reparto de responsabilidades del hashing — el dominio nunca hashea ni
+verifica**: `User.register(email, password_hash)` recibe el hash ya
+calculado; no conoce `PasswordHasher` ni ningún algoritmo concreto. Toda
+la orquestación (hashear al registrar, verificar al hacer login) vive en
+los handlers de `application` (mismo reparto ya establecido en
+`RegisterUserHandler`, que construye `Email` y llama al repositorio) —
+se descartó deliberadamente un diseño de "dominio rico" donde `User`
+recibiera el hasher como colaborador, por ser un patrón nuevo sin
+precedente en el resto del módulo y por desdibujar la frontera
+dominio/aplicación ya establecida.
+
+**`POST /users` (incremento 3) pasa a exigir `password`** —cambio con
+ruptura deliberada del contrato ya en producción: `RegisterUserRequest`,
+`RegisterUserCommand` y `RegisterUserHandler` ganan el campo; no se
+introdujo un endpoint separado para fijar contraseña ni un estado
+intermedio de "usuario sin credenciales". Se descartó explícitamente por
+ser innecesario mientras exista un único flujo de alta.
+
+**Política de fortaleza de contraseña — en `application`, no en el
+Pydantic ni como Value Object**: `RegisterUserHandler` valida longitud
+mínima (8 caracteres, `MIN_PASSWORD_LENGTH`) antes de hashear, lanzando
+`WeakPasswordError` (dominio, HTTP 422) si no la cumple. Se descartó
+tanto delegar la regla en `min_length` del DTO (habría quedado como
+validación de formato HTTP, no como invariante de aplicación reutilizable
+por otros caminos de entrada futuros) como no validar nada (Argon2id ya
+hace inviable la fuerza bruta del hash, pero no protege un endpoint de
+login contra contraseñas triviales probadas directamente). No existe un
+Value Object `Password` para el texto plano — a diferencia de `Email`,
+el password en claro nunca se persiste ni forma parte del estado del
+agregado, solo transita por `application` camino del hasher.
+
+**`InvalidCredentialsError` deliberadamente genérico**: `LoginUserHandler`
+lanza la misma excepción tanto si el email no existe como si la
+contraseña es incorrecta — evita enumeración de usuarios vía el mensaje
+de error de login. Verificado explícitamente con un test que compara el
+mensaje de ambos casos (`test_unknown_email_and_wrong_password_raise_the_same_generic_error`).
+`LoginUserHandler` no usa `UnitOfWork` — un login exitoso no muta ningún
+estado persistido (coherente con "stateless": no hay sesión que
+escribir).
+
+**Puertos nuevos en `application/ports.py`**: `PasswordHasher`
+(`hash`/`verify`) y `TokenIssuer` (`issue`/`verify`), junto a
+`UserRepository` — mismo patrón de puerto/adaptador ya establecido,
+para que ni `domain` ni `application` importen `argon2` ni `PyJWT`
+directamente.
+
+**Hashing: Argon2id vía `argon2-cffi`**, sin tuning de parámetros
+propio — se usan los valores por defecto de la librería, que ya hashea
+con Argon2id (recomendación actual de OWASP), en
+`identity/infrastructure/password_hasher.py`. Alternativas descartadas:
+`bcrypt` (API más simple pero sin ser la recomendación vigente de
+OWASP) y `passlib[bcrypt]` (capa de abstracción con historial de
+mantenimiento más lento — mismo tipo de riesgo ya evaluado para `httpx`
+en la entrada de 2026-07-19).
+
+**JWT: `PyJWT` + `HS256`**, secreto simétrico único vía
+`config.settings.get_jwt_secret()` (mismo patrón que `get_database_url()`
+— lee `JWT_SECRET` de `os.environ`, lanza `RuntimeError` claro si falta).
+`RS256` y gestión de claves asimétricas quedan descartados explícitamente
+para este incremento — el puerto `TokenIssuer` deja la puerta abierta a
+cambiar de algoritmo sin tocar dominio ni aplicación si hace falta más
+adelante. **TTL fijo de 1 hora** (`_TOKEN_TTL` en
+`jwt_token_issuer.py`), sin refresh token en este incremento — el TTL es
+la única palanca de exposición ante un token filtrado mientras no exista
+refresh/rotación; el propio código deja un comentario explícito para
+bajarlo cuando el incremento de dispositivos añada refresh tokens.
+
+**`get_current_user_id` usa `HTTPBearer(auto_error=False)`, no el
+comportamiento por defecto**: sin este cambio, un `Authorization` header
+ausente habría devuelto `403` (comportamiento por defecto de
+`HTTPBearer` en FastAPI), inconsistente con `401` para token
+inválido/expirado. Se comprueba `credentials is None` explícitamente y
+se lanza el mismo `InvalidTokenError` en ambos casos — mismo código de
+estado (`401`, con cabecera `WWW-Authenticate: Bearer`) para "sin token"
+y "token inválido".
+
+**Consecuencias**: 28 tests nuevos (79 en total en el backend, todos en
+verde): dominio (`PasswordHash`, `User.register` actualizado),
+aplicación (`RegisterUserHandler` con hash/política de contraseña,
+`LoginUserHandler`), infraestructura sin base de datos
+(`Argon2PasswordHasher`, `PyJwtTokenIssuer` — incluye el caso de un
+token firmado con un secreto distinto y el de un token expirado,
+construido con `jwt.encode` directamente para no depender del TTL real)
+e integración HTTP completa (`test_login_and_me_routes.py`: login
+correcto, credenciales incorrectas, email desconocido, `/users/me` con
+token válido/ausente/inválido/firmado con otro secreto). Dependencias
+nuevas en `pyproject.toml`: `argon2-cffi~=25.1.0` y `pyjwt~=2.13.0`
+(versiones reales verificadas contra PyPI el mismo día). `JWT_SECRET`
+añadido a `backend/.env.example` (comentado, con instrucción de generar
+uno real vía `openssl rand -hex 32`, nunca comitear un valor real).
+Ruff, mypy (`strict`, sin `type: ignore`) y `pytest` sin incidencias ni
+warnings — los primeros intentos de tests con secretos JWT cortos
+generaban `InsecureKeyLengthWarning` de PyJWT (mínimo recomendado de 32
+bytes para HS256); corregido usando secretos de prueba suficientemente
+largos en vez de silenciar el warning.
+
+**Pendiente explícito**: `ROADMAP.md` Fase 3 sigue sin cerrarse —
+dispositivos vinculados es el siguiente incremento antes de considerar
+Fase 4. `Credentials` como agregado separado, refresh tokens,
+rotación/revocación de tokens, y cualquier endpoint protegido más allá
+de `GET /users/me` quedan fuera de alcance hasta que un caso de uso real
+los justifique (mismo criterio de minimalismo aplicado en todo el
+módulo).

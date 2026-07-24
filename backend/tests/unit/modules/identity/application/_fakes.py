@@ -1,8 +1,10 @@
 """Test doubles for identity application tests - no database involved."""
 
-from athlos.modules.identity.application.ports import UserRepository
+import uuid
+
+from athlos.modules.identity.application.ports import PasswordHasher, TokenIssuer, UserRepository
 from athlos.modules.identity.domain.user import User
-from athlos.modules.identity.domain.value_objects import Email, UserId
+from athlos.modules.identity.domain.value_objects import Email, PasswordHash, UserId
 from athlos.platform.application.unit_of_work import UnitOfWork
 
 
@@ -37,3 +39,32 @@ class FakeUnitOfWork(UnitOfWork):
 
     def rollback(self) -> None:
         self.rollback_count += 1
+
+
+class FakePasswordHasher(PasswordHasher):
+    """Deterministic, insecure "hashing" (reversed string) - fine for
+    tests, never used outside them. Avoids depending on the real Argon2id
+    adapter (infrastructure) from pure application-layer tests.
+    """
+
+    def hash(self, raw_password: str) -> PasswordHash:
+        return PasswordHash(raw_password[::-1])
+
+    def verify(self, raw_password: str, password_hash: PasswordHash) -> bool:
+        return raw_password[::-1] == password_hash.value
+
+
+class FakeTokenIssuer(TokenIssuer):
+    """Issues the user id itself as the "token" - no real JWT involved,
+    keeping application-layer tests independent of the PyJWT adapter.
+    """
+
+    def __init__(self) -> None:
+        self.issued_for: list[UserId] = []
+
+    def issue(self, user_id: UserId) -> str:
+        self.issued_for.append(user_id)
+        return str(user_id.value)
+
+    def verify(self, token: str) -> UserId:
+        return UserId(uuid.UUID(token))
