@@ -26,6 +26,7 @@ from sqlalchemy import engine_from_config, pool
 # tablas queden registradas en `Base.metadata` antes de que Alembic la
 # use. Registro manual obligatorio por modulo (ver docstring arriba).
 from athlos.modules.identity.infrastructure import models as _identity_models  # noqa: F401
+from athlos.modules.training.infrastructure import models as _training_models  # noqa: F401
 from athlos.platform.infrastructure.outbox import models as _outbox_models  # noqa: F401
 from athlos.platform.infrastructure.persistence.database import Base
 
