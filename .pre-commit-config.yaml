@@ -27,3 +27,9 @@ repos:
       - id: check-yaml
       - id: check-toml
       - id: check-added-large-files
+        # frontend/mobile/package-lock.json (~586KB) is a legitimate,
+        # necessary lockfile - same category as backend/uv.lock, already
+        # committed. Raised from the 500KB default rather than excluding
+        # lockfiles outright, so a genuinely oversized accidental commit
+        # still gets caught.
+        args: [--maxkb=1000]
