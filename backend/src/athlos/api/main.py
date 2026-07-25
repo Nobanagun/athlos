@@ -10,11 +10,16 @@ from fastapi import FastAPI
 
 from athlos.modules.identity.interfaces import exception_handlers as identity_exception_handlers
 from athlos.modules.identity.interfaces.routes import router as identity_router
+from athlos.modules.training.interfaces import exception_handlers as training_exception_handlers
+from athlos.modules.training.interfaces.routes import router as training_router
 
 app = FastAPI(title="Athlos")
 
 app.include_router(identity_router)
 identity_exception_handlers.register(app)
+
+app.include_router(training_router)
+training_exception_handlers.register(app)
 
 
 @app.get("/health")
