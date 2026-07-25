@@ -1,6 +1,6 @@
 # Project State
 
-> Última actualización: 2026-07-24
+> Última actualización: 2026-07-25
 > Este documento es la fuente de verdad sobre el estado real del proyecto.
 > Debe actualizarse cada vez que cambie algo significativo (stack, estructura,
 > fase actual). Si este documento contradice el código, el código manda —
@@ -43,7 +43,26 @@ carecía de `_domain_events` y `.domain_events`/`record_event()`/
 para el análisis completo, la alternativa descartada y la verificación
 empírica previa a implementar.
 
-**112 tests en total en el backend, todos en verde.**
+**Fase 4 (`training`) en curso — no cerrada todavía**. Backend completo
+end-to-end (dominio, aplicación, persistencia, API) para los tres
+deportes (`RunningActivity`/`CyclingActivity`/`GymActivity`,
+independientes entre sí), más un cliente móvil de solo lectura (lista +
+detalle de actividades). De los tres criterios de finalización de
+`ROADMAP.md`: alta/consulta de actividades end-to-end y publicación de
+`ActivityRecorded` vía outbox ya están **verificados con tests**
+(incluido un test end-to-end del outbox, mismo patrón que `identity`);
+la documentación como plantilla de referencia se cierra con esta misma
+actualización. **Bloqueo real restante, no técnico**: la pantalla de
+actividades nunca se ha ejecutado en un simulador o dispositivo real —
+solo se ha verificado que compila, tipa y empaqueta (`expo export`).
+Ver `DECISIONS.md` (entradas de Fase 4, incrementos 1-5 y 6) para el
+detalle completo de decisiones.
+
+**152 tests en total en el backend, todos en verde** (112 de
+`identity`/`platform` + 40 de `training`). En el móvil: 16 tests
+(`httpClient`, `AuthContext`, cliente de `training`), `tsc --noEmit` y
+`eslint` limpios, `expo export --platform ios` genera un bundle real de
+1123 módulos sin errores.
 
 Ver [`ROADMAP.md`](ROADMAP.md) para las fases siguientes y
 [`docs/agent/OPEN_QUESTIONS.md`](agent/OPEN_QUESTIONS.md) para
@@ -54,7 +73,7 @@ limitaciones conocidas (protección de rama pendiente de GitHub Pro).
 | Área | Tecnología | Estado |
 |---|---|---|
 | Backend | Python 3.13 + FastAPI 0.139.2 (uv) | Dependencias instaladas y fijadas, sin lógica de negocio |
-| Frontend móvil (principal) | React Native + Expo + TypeScript + Expo Router | Elegido, sin bootstrap real todavía |
+| Frontend móvil (principal) | React Native + Expo + TypeScript + Expo Router | Bootstrap real hecho (auth JWT, cliente de `training` de solo lectura) — en rama, pendiente de merge y validación manual en simulador |
 | Frontend web (dashboard/admin) | Next.js + TypeScript | Elegido, **no implementado**, fase futura |
 | Persistencia local (mobile, offline-first) | Por decidir (SQLite / WatermelonDB / Realm) | Pendiente |
 | Base de datos backend | Por decidir (candidata: PostgreSQL) | Pendiente |
@@ -98,10 +117,9 @@ athlos/
 ### Backend
 
 - Estructura de carpetas de los 8 módulos (bounded contexts) creada, cada
-  uno con capas `domain/application/infrastructure/interfaces`. **7 de 8
-  módulos siguen siendo placeholders con docstring** (`training`,
-  `recovery`, `planning`, `coaching`, `analytics`, `sync`,
-  `integrations`).
+  uno con capas `domain/application/infrastructure/interfaces`. **6 de 8
+  módulos siguen siendo placeholders con docstring** (`recovery`,
+  `planning`, `coaching`, `analytics`, `sync`, `integrations`).
 - **`identity` (Fase 3, incrementos 1-5)**: `domain/` gana `PasswordHash`
   (value object, sin validación propia), `User` con `password_hash`,
   `WeakPasswordError`/`InvalidCredentialsError`/`InvalidTokenError`
@@ -134,6 +152,32 @@ athlos/
   `DeviceNotFoundError`→404; deja `IntegrityError` de condición de
   carrera sin traducir, propaga como 500 — decisión deliberada, ver
   `DECISIONS.md`).
+- **`training` (Fase 4, incrementos 1-5) — primer módulo de negocio de
+  referencia**: `domain/` con tres agregados completamente
+  independientes (`RunningActivity`/`CyclingActivity`/`GymActivity`, en
+  sus propios subpaquetes `running/`/`cycling`/`gym/`, sin base común ni
+  herencia entre ellos), value objects compartidos en la raíz del
+  módulo (`ActivityId`, `Duration`/`Distance` en SI — metros/segundos,
+  ambos estrictamente positivos), el `Protocol` `ActivitySummary`
+  (`id`/`user_id`/`sport`/`started_at`, único contrato estructural entre
+  los tres deportes) y el evento genérico `ActivityRecorded`.
+  `GymActivity` es deliberadamente mínimo (sin desglose de ejercicios).
+  `application/` tiene un handler y un repositorio por deporte
+  (`RegisterXActivityHandler`, `GetXActivityHandler`) más
+  `ListUserActivitiesHandler` (única excepción cross-sport, orquesta los
+  tres repositorios y fusiona en Python). `infrastructure/` tiene tres
+  tablas separadas (`running_activities`/`cycling_activities`/
+  `gym_activities`, mismo patrón `_MappedX` + `TypeDecorator` que
+  `identity`) y reutiliza `UtcDateTimeType`, promovido a
+  `platform/infrastructure/persistence/` en este mismo incremento (ver
+  entrada siguiente). `interfaces/` expone
+  `POST /activities/{running,cycling,gym}` (`201`),
+  `GET /activities` (listado cross-sport, DTO mínimo) y
+  `GET /activities/{sport}/{id}` (detalle completo por deporte), todos
+  protegidos con el JWT ya existente de `identity`;
+  `ActivityNotFoundError`→404 (genérico, mismo criterio anti-enumeración
+  que `DeviceNotFoundError`). Ver `DECISIONS.md` para el detalle
+  completo de decisiones y alternativas descartadas.
 - **`platform/` (shared kernel) ya tiene implementación real** (Fase 2):
   `Entity`/`AggregateRoot`/`ValueObject`/`DomainEvent` (dominio puro, sin
   SQLAlchemy ni Pydantic); `UserId` (identificador transversal,
@@ -141,7 +185,10 @@ athlos/
   `UnitOfWork`/`EventBus` (contratos); `SqlAlchemyUnitOfWork` (concreta,
   síncrona, con el algoritmo de commit documentado en `DECISIONS.md`);
   `OutboxMessage` + `dispatch_pending()` (Transactional Outbox);
-  `InMemoryEventBus`. Sin repositorio genérico (no se justificó
+  `InMemoryEventBus`; `UtcDateTimeType` (`infrastructure/persistence/`,
+  trasladado desde `identity/infrastructure` durante la Fase 4 — mismo
+  criterio que `UserId`, evita repetir el bug de `tzinfo` en SQLite ya
+  corregido una vez). Sin repositorio genérico (no se justificó
   todavía). Tests en `backend/tests/unit/platform/`.
 - Gestor de dependencias: `uv`, con `.python-version` (3.13) y `uv.lock`
   commiteado. `pyproject.toml` declara dependencias reales y fijadas
@@ -149,9 +196,10 @@ athlos/
   `pydantic` en runtime; `pytest`, `httpx2`, `ruff`, `mypy`, `pre-commit`
   en dev — ver `DECISIONS.md` para la justificación de cada versión).
 - `backend/src/athlos/api/main.py` es el composition root (sin lógica de
-  negocio): expone `GET /health` y ahora también `POST /users` (incluido
-  el router de `identity` y su registro de manejadores de excepciones).
-  `api/dependencies.py` (nuevo, compartido, agnóstico de negocio):
+  negocio): expone `GET /health`, el router de `identity` y ahora
+  también el de `training`, cada uno con su propio registro de
+  manejadores de excepciones. `api/dependencies.py` (nuevo, compartido,
+  agnóstico de negocio):
   `get_session()`/`get_unit_of_work()`, con inicialización perezosa del
   engine (`functools.lru_cache`) para que importar el módulo nunca
   requiera `DATABASE_URL`. `config/settings.py` (nuevo, mínimo): lee
@@ -161,25 +209,39 @@ athlos/
   un `git commit` real.
 - Alembic configurado (`alembic.ini`, `migrations/env.py`,
   `script.py.mako`); `target_metadata` apunta a la `Base` del shared
-  kernel, que ahora registra `outbox_messages` **y `users`**. Sigue sin
-  generarse ninguna migración real — requiere PostgreSQL real, pendiente
-  del resto de la Fase 1. **Registro manual obligatorio**: cada módulo
-  con infraestructura propia debe añadir su import en `migrations/env.py`
-  a mano — no hay descubrimiento automático (ver `DECISIONS.md` y
+  kernel, que ahora registra `outbox_messages`, `users`, `devices` **y
+  las tres tablas de `training`**. Sigue sin generarse ninguna migración
+  real — requiere PostgreSQL real, pendiente del resto de la Fase 1.
+  **Registro manual obligatorio**: cada módulo con infraestructura
+  propia debe añadir su import en `migrations/env.py` a mano — no hay
+  descubrimiento automático (ver `DECISIONS.md` y
   `backend/migrations/README.md`).
 - Sin base de datos ni Redis en ejecución — los drivers están instalados
   pero no hay ningún servicio real levantado (eso es Fase 1, sección de
-  infraestructura Docker, todavía pendiente). Los tests de `platform/` e
-  `identity` corren contra SQLite en memoria; **pendiente re-validar
-  contra PostgreSQL real** (outbox desde Fase 2, y ahora también la
-  restricción `UNIQUE` de `identity`).
+  infraestructura Docker, todavía pendiente). Los tests de `platform/`,
+  `identity` y `training` corren contra SQLite en memoria; **pendiente
+  re-validar contra PostgreSQL real** (outbox desde Fase 2, la
+  restricción `UNIQUE` de `identity`, y ahora también las tres tablas de
+  `training`).
 
 ### Frontend
 
-- **mobile/**: estructura de carpetas creada (`app/` para Expo Router,
-  `src/domain`, `src/data/{local,remote,sync}`, `src/features`,
-  `src/shared`). `package.json`/`tsconfig.json`/`app.json` son
-  manifiestos sin instalar (`npm install` no ejecutado).
+- **mobile/**: bootstrap real hecho (Expo instalado, `expo export`
+  genera un bundle real sin errores) — **en rama, sin mergear a
+  `main` todavía**. Expo Router con grupos `(auth)`/`(app)`;
+  `AuthContext` (`src/features/auth/`) con `SecureStore` (sin refresh
+  tokens — un `401` fuerza logout), vinculación de dispositivo tras
+  login (tolerante a fallos de red/HTTP, no bloquea el login). Cliente
+  de `training` de solo lectura: `src/domain/training.ts` (unión
+  discriminada por `sport`), `src/data/remote/training.ts` (mapea
+  DTO snake_case → dominio camelCase), pantallas
+  `app/(app)/activities/{index,[sport]/[id]}.tsx` (lista + detalle,
+  estado local de carga/error, sin hook compartido ni gestión de estado
+  global). 16 tests, `tsc`/`eslint` limpios. **Sin validar en un
+  simulador o dispositivo real** — pendiente, no ejecutable en este
+  entorno de desarrollo. Persistencia local (`data/local`) y
+  sincronización (`data/sync`) siguen sin implementar — motor por
+  decidir, Fase 5.
 - **web/**: solo existe como carpeta reservada con un README explicando
   que se implementará en una fase posterior.
 
@@ -196,16 +258,23 @@ athlos/
 
 ## Próximo objetivo
 
-**Fase 3 (`identity`) completada** — cinco incrementos, 112 tests en
-total en el backend, todos en verde. Próximo objetivo: **Fase 4 —
-Training**, módulo de referencia que servirá de plantilla para el resto
-de bounded contexts de negocio (ver `ROADMAP.md`). Diseño inicial en
-preparación, pendiente de revisión antes de implementar nada.
+**Fase 4 (`training`) en curso, no cerrada todavía.** Backend completo
+(152 tests) y cliente móvil de solo lectura (16 tests) implementados;
+de los tres criterios de finalización de `ROADMAP.md`, los dos
+verificables con tests ya lo están (actividades end-to-end,
+`ActivityRecorded` vía outbox) y la documentación como plantilla de
+referencia se cierra con esta actualización. **Queda un único bloqueo
+antes del cierre formal, y no es técnico**: validar manualmente que la
+app arranca y navega correctamente en un simulador o dispositivo real
+— no ejecutable en este entorno de desarrollo, requiere intervención
+directa.
 
-Sin relación de bloqueo con la Fase 4, sigue pendiente: (1) el resto de
-la Fase 1 (CI, servicios Docker reales, bootstrap de la app móvil) y,
-con Postgres real disponible, generar la primera migración real y
-re-validar outbox + restricciones `UNIQUE` (`users.email`,
-`devices(device_id, user_id)`) contra él; (2) traducción de
-`IntegrityError` por condición de carrera en `identity`, deliberadamente
-fuera de alcance hasta ahora (ver `DECISIONS.md`). Ver `ROADMAP.md`.
+Sin relación de bloqueo con el cierre de la Fase 4, sigue pendiente:
+(1) mergear las ramas de `training` (backend y cliente móvil) y el
+bootstrap móvil a `main`; (2) el resto de la Fase 1 (CI, servicios
+Docker reales) y, con Postgres real disponible, generar la primera
+migración real y re-validar outbox + restricciones `UNIQUE`
+(`users.email`, `devices(device_id, user_id)`) contra él; (3)
+traducción de `IntegrityError` por condición de carrera en `identity`,
+deliberadamente fuera de alcance hasta ahora (ver `DECISIONS.md`). Ver
+`ROADMAP.md`.

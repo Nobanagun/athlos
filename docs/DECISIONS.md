@@ -956,3 +956,148 @@ sigue siendo exactamente el mismo value object (envuelve `uuid.UUID`,
 `platform/`, exactamente igual que ya depende de `AggregateRoot`/
 `UnitOfWork`, sin crear una dependencia hacia `identity`. Ruff, `ruff
 format` y mypy (`strict`) sin incidencias tras la migración completa.
+
+---
+
+## 2026-07-25 — Fase 4 (incrementos 1-5): `training` — dominio, aplicación, infraestructura e interfaces
+
+**Decisión**: se implementa `training` como el primer módulo de negocio
+de referencia (running, ciclismo, gimnasio), completo end-to-end en el
+backend — dominio, aplicación, persistencia y API. Sienta el patrón que
+replicarán `recovery`/`planning` (Fase 6) y sirve de base a
+`analytics`/`coaching` (Fase 7). La integración móvil es el incremento
+6, entrada separada más abajo.
+
+**Tres agregados completamente independientes, no un `Activity`
+genérico con discriminador**: `RunningActivity`, `CyclingActivity` y
+`GymActivity` no comparten base de clase ni tabla — cada uno modela su
+propio deporte sin condicionar el diseño de los demás. Lo único
+compartido es la *identidad* (`ActivityId`, en `training/domain/`, no
+en `platform/` — ningún otro módulo lo necesita todavía) y un contrato
+estructural mínimo (`ActivitySummary`, un `Protocol` con
+`id`/`user_id`/`sport`/`started_at`) para poder listar los tres juntos
+sin acoplarlos entre sí.
+
+**`GymActivity` deliberadamente mínimo**: solo `duration` y
+`started_at`, sin desglose de ejercicios (series/repeticiones/peso) —
+ese salto de complejidad (sub-entidades, posible catálogo de
+ejercicios) queda para un incremento futuro explícito si un caso de uso
+real lo justifica, no es un recorte accidental ni un olvido.
+
+**`Duration`/`Distance` como value objects en SI** (segundos/metros),
+ambos estrictamente positivos — la conversión de unidades (millas,
+pies) es responsabilidad exclusiva de la app móvil, nunca del dominio.
+
+**Un handler y un repositorio por deporte, no un caso de uso unificado
+con una rama `if/elif` interna**: `RegisterRunningActivityHandler`/
+`RegisterCyclingActivityHandler`/`RegisterGymActivityHandler`, cada uno
+con su propio `XActivityRepository`. `ListUserActivitiesHandler` es la
+única excepción deliberada — orquesta los tres repositorios y fusiona
+en Python (sin modelo de lectura/proyección dedicado, no justificado
+todavía por el volumen de datos de este incremento; revisar si alguna
+vez se convierte en un cuello de botella real).
+
+**Persistencia en tres tablas separadas** (`running_activities`/
+`cycling_activities`/`gym_activities`), no una tabla única con
+discriminador — consecuencia directa de la independencia de los
+agregados; mismo patrón `_MappedX` + `TypeDecorator` ya usado dos veces
+en `identity`. `UtcDateTimeType` se promovió a
+`platform/infrastructure/persistence/` durante este incremento (mismo
+criterio que la promoción de `UserId`): el bug de `tzinfo` en SQLite ya
+demostrado en `identity` (incremento 5) iba a repetirse aquí si cada
+módulo reimplementaba su propio `TypeDecorator`. `identity/infrastructure/models.py`
+se actualizó para reutilizarlo — sin cambio de comportamiento, sus 112
+tests originales siguen pasando sin modificar ninguna aserción.
+
+**Endpoints separados por deporte** (`POST /activities/{running,cycling,gym}`,
+`GET /activities/{sport}/{id}`), con una única excepción deliberada:
+`GET /activities` (listado) devuelve el contrato cross-sport mínimo
+(`ActivitySummaryResponse`: `id`/`sport`/`started_at`), reflejando en
+la API exactamente el mismo contrato estructural ya decidido en el
+dominio. Los endpoints de registro devuelven `201 Created` (no el `200`
+por defecto) — corregido durante la implementación para ser
+consistente con `POST /users` de `identity`; a diferencia de
+`POST /devices` (deliberadamente `200`, por ser idempotente), registrar
+una actividad sí es una creación genuina cada vez.
+
+**`ActivityNotFoundError` genérica** para "no existe" y "pertenece a
+otro usuario" — mismo criterio anti-enumeración que `DeviceNotFoundError`
+en `identity`.
+
+**Consecuencias**: 40 tests nuevos en el backend (152 en total, todos
+en verde): dominio (19), aplicación (9, con dobles de prueba),
+infraestructura (6, contra SQLite real — incluye el test end-to-end de
+outbox, `test_register_running_activity_end_to_end.py`, verificando
+que `ActivityRecorded` llega a `outbox_messages` con el mismo patrón
+que `test_register_user_end_to_end.py`/`test_register_device_end_to_end.py`
+en `identity`) e interfaces HTTP (8, incluido aislamiento entre
+usuarios: un usuario no puede leer el detalle de una actividad ajena).
+Ruff, `ruff format` y mypy (`strict`) sin incidencias.
+
+**Alcance deliberadamente recortado, no repetido por deporte en los
+tests de infraestructura/end-to-end**: los tests de repositorio y del
+flujo de outbox se escribieron solo para `RunningActivity`, como
+representativo de los tres — `CyclingActivity`/`GymActivity` comparten
+exactamente el mismo cableado `_MappedX`/`TypeDecorator`/`UnitOfWork`,
+verificado ya sin variación específica por deporte en esa capa.
+
+---
+
+## 2026-07-25 — Fase 4 (incremento 6): `training` — cliente móvil de solo lectura
+
+**Decisión**: se consume el backend de `training` desde la app móvil,
+exclusivamente en lectura (listado + detalle) — sin formulario de
+registro de actividades en este incremento, aunque el backend ya lo
+soporta. `ROADMAP.md` solo exige "una pantalla real... lista + detalle
+de actividad"; añadir creación habría ampliado el alcance sin que se
+pidiera.
+
+**Separación `data/`/`domain/`/`presentation/` reutilizando la
+estructura ya reservada**: `src/data/`, `src/domain/`, `src/features/`
++ `app/`, en vez de introducir una carpeta `presentation/` nueva —
+`src/features/` ya cumple ese papel (así lo describe su propio README
+desde la Fase 0) y ya lo demuestra `src/features/auth/`.
+
+**`src/data/remote/training.ts` mapea DTO (snake_case) → dominio
+(camelCase) explícitamente**, a diferencia de `identity.ts` (que en su
+mayoría devuelve la forma cruda del backend sin mapear): aquí los
+nombres de campo sí difieren de verdad (`distance_meters` →
+`distanceMeters`), así que `data/` es la frontera de traducción real
+que describe `ARCHITECTURE.md`.
+
+**`src/domain/training.ts`: unión discriminada por `sport`**
+(`RunningActivity | CyclingActivity | GymActivity`), espejo exacto del
+contrato `ActivitySummary` ya aprobado en el backend — mismo criterio
+de "solo lo ya aprobado como común".
+
+**Ruta de detalle `app/(app)/activities/[sport]/[id].tsx`** (no
+`[id].tsx` a secas): refleja literalmente la forma de la API
+(`GET /activities/{sport}/{id}`), evitando que la pantalla de lista
+tenga que pasar estado adicional por navegación — el propio URL ya
+lleva el deporte.
+
+**Sin gestión de estado global ni hook de datos compartido**: cada
+pantalla mantiene su propio `useState` de carga/error, mismo patrón ya
+usado en `(auth)/login.tsx`/`register.tsx` — con solo dos pantallas
+nuevas, generalizar la abstracción sería prematuro.
+
+**`(app)/index.tsx` no se reemplaza**: sigue siendo la pantalla que
+demuestra que la sesión funciona (`GET /users/me`), con un enlace a
+`/(app)/activities` — no se ha diseñado todavía una navegación por
+tabs, prematuro mientras no exista una segunda sección real más allá
+de `training`.
+
+**Consecuencias**: 6 archivos nuevos, 5 tests del mapeo DTO→dominio
+(incluida la variante `gym` sin campo de distancia), `tsc --noEmit` y
+`eslint` limpios, `expo export --platform ios` genera un bundle real
+sin errores (1123 módulos). Corregido un hallazgo real de ESLint
+(`react-hooks/set-state-in-effect`, regla nueva): el estado de error se
+limpiaba de forma síncrona al inicio del efecto; movido al callback
+`.then()`.
+
+**Pendiente explícito antes del cierre de la Fase 4**: validación
+manual en simulador o dispositivo real — no ejecutable en este
+entorno de desarrollo, sigue sin confirmarse que la app arranca y
+navega correctamente fuera del build estático (`expo export`).
+Persistencia local offline y sincronización quedan fuera de alcance,
+Fase 5.
