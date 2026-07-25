@@ -8,7 +8,7 @@ shape already approved for listing.
 
 import uuid
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, status
 
 from athlos.modules.training.application.get_cycling_activity import GetCyclingActivityHandler
 from athlos.modules.training.application.get_gym_activity import GetGymActivityHandler
@@ -84,7 +84,7 @@ def _gym_response(activity: GymActivity) -> GymActivityResponse:
     )
 
 
-@router.post("/activities/running")
+@router.post("/activities/running", status_code=status.HTTP_201_CREATED)
 def register_running_activity(
     request: RegisterRunningActivityRequest,
     user_id: UserId = Depends(get_current_user_id),
@@ -107,7 +107,7 @@ def register_running_activity(
     )
 
 
-@router.post("/activities/cycling")
+@router.post("/activities/cycling", status_code=status.HTTP_201_CREATED)
 def register_cycling_activity(
     request: RegisterCyclingActivityRequest,
     user_id: UserId = Depends(get_current_user_id),
@@ -130,7 +130,7 @@ def register_cycling_activity(
     )
 
 
-@router.post("/activities/gym")
+@router.post("/activities/gym", status_code=status.HTTP_201_CREATED)
 def register_gym_activity(
     request: RegisterGymActivityRequest,
     user_id: UserId = Depends(get_current_user_id),

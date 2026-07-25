@@ -9,7 +9,7 @@ def _auth_headers(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
-def test_register_running_activity_returns_200_with_the_activity(
+def test_register_running_activity_returns_201_with_the_activity(
     client: TestClient, auth_token: str
 ) -> None:
     response = client.post(
@@ -22,7 +22,7 @@ def test_register_running_activity_returns_200_with_the_activity(
         headers=_auth_headers(auth_token),
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 201
     body = response.json()
     assert body["sport"] == "running"
     assert body["distance_meters"] == 10_000
@@ -36,7 +36,7 @@ def test_register_gym_activity_has_no_distance_field(client: TestClient, auth_to
         headers=_auth_headers(auth_token),
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 201
     body = response.json()
     assert body["sport"] == "gym"
     assert "distance_meters" not in body
