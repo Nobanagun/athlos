@@ -3,30 +3,43 @@
 App principal de Athlos: React Native + Expo + TypeScript, con Expo
 Router para el enrutado basado en archivos. Disenada offline-first.
 
-> Estado actual: solo estructura de carpetas y manifiestos. No se ha
-> ejecutado `npm install` / `npx expo install` ni se ha decidido aun la
-> libreria concreta de persistencia local (candidatas: SQLite, WatermelonDB,
-> Realm).
+> Estado actual: bootstrap real (dependencias instaladas, Metro
+> empaqueta sin errores) con navegacion y autenticacion JWT completas
+> contra el backend real (registro, login, vinculacion de dispositivo,
+> logout). Sin persistencia local offline todavia - motor por decidir
+> (SQLite / WatermelonDB / Realm), fuera de alcance de este incremento
+> (ver docs/DECISIONS.md).
 
 ## Estructura
 
 ```
 mobile/
-├── app/                 # Rutas de Expo Router (file-based routing)
+├── app/                    # Rutas de Expo Router - ver app/README.md
 ├── src/
-│   ├── domain/           # Modelos de dominio del cliente (espejo del backend)
+│   ├── domain/               # Modelos de dominio del cliente (espejo del backend)
 │   ├── data/
-│   │   ├── local/         # Persistencia local / offline
-│   │   ├── remote/        # Clientes de API hacia el backend
-│   │   └── sync/          # Motor de sincronizacion offline-first
-│   ├── features/          # Modulos de UI por dominio (training, recovery, ...)
-│   └── shared/            # Componentes, hooks y utilidades compartidas
-└── assets/                # Iconos, splash screens, fuentes
+│   │   ├── local/              # Persistencia local / offline - pendiente (Fase 5)
+│   │   ├── remote/              # httpClient.ts + identity.ts (registro/login/dispositivo)
+│   │   └── sync/                # Motor de sincronizacion offline-first - pendiente (Fase 5)
+│   ├── features/
+│   │   └── auth/                 # AuthContext, useAuth
+│   └── shared/                     # env.ts, deviceId.ts
+└── assets/                          # Iconos, splash screens, fuentes
+```
+
+## Como ejecutar
+
+```
+cp .env.example .env    # y define EXPO_PUBLIC_API_URL
+npm install
+npm run typecheck
+npm run lint
+npm test
+npm start                # requiere simulador/dispositivo real
 ```
 
 ## Siguiente fase (no incluida todavia)
 
-- Bootstrap real con Expo (`npx create-expo-app` o equivalente) e
-  instalacion de dependencias.
-- Eleccion de la libreria de persistencia local y el motor de sync.
-- Implementacion de la primera feature end-to-end.
+- Persistencia local offline-first y motor de sincronizacion (Fase 5).
+- Pantallas reales de `training` (lista + detalle de actividad) sobre
+  el shell autenticado ya existente.
