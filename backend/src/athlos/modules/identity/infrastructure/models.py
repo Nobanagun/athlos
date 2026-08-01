@@ -10,9 +10,9 @@ shared kernel was needed for this.
 """
 
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, String, TypeDecorator, UniqueConstraint, Uuid
+from sqlalchemy import Enum, String, TypeDecorator, UniqueConstraint, Uuid
 from sqlalchemy.engine import Dialect
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -26,6 +26,7 @@ from athlos.modules.identity.domain.value_objects import (
 )
 from athlos.platform.domain.user_id import UserId
 from athlos.platform.infrastructure.persistence.database import Base
+from athlos.platform.infrastructure.persistence.utc_datetime import UtcDateTimeType
 
 
 class UserIdType(TypeDecorator[UserId]):
@@ -93,31 +94,6 @@ class DeviceIdType(TypeDecorator[DeviceId]):
 
     def process_result_value(self, value: uuid.UUID | None, dialect: Dialect) -> DeviceId | None:
         return DeviceId(value) if value is not None else None
-
-
-class UtcDateTimeType(TypeDecorator[datetime]):
-    """Persists a timezone-aware UTC `datetime`, round-tripping correctly
-    through SQLite - which silently discards `tzinfo` on plain
-    `DateTime` columns (verified empirically: a value read back in the
-    same process compared unequal to the one written, differing only by
-    `tzinfo`). Stores as UTC-naive, reattaches `tzinfo=UTC` on read, so
-    `Device.registered_at` is always timezone-aware regardless of
-    whether it came fresh from `Device.register()` or was loaded back
-    from the database (see docs/DECISIONS.md).
-    """
-
-    impl = DateTime
-    cache_ok = True
-
-    def process_bind_param(self, value: datetime | None, dialect: Dialect) -> datetime | None:
-        if value is None:
-            return None
-        return value.astimezone(UTC).replace(tzinfo=None)
-
-    def process_result_value(self, value: datetime | None, dialect: Dialect) -> datetime | None:
-        if value is None:
-            return None
-        return value.replace(tzinfo=UTC)
 
 
 class _MappedUser(User, Base):
