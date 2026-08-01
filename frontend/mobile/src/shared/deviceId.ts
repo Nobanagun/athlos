@@ -1,5 +1,6 @@
 import * as Crypto from "expo-crypto";
-import * as SecureStore from "expo-secure-store";
+
+import * as SecureStore from "./secureStorage";
 
 /**
  * This installation's device_id - client-generated (see

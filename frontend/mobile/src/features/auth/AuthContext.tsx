@@ -1,4 +1,4 @@
-import * as SecureStore from "expo-secure-store";
+import * as SecureStore from "@/shared/secureStorage";
 import { createContext, type ReactNode, useCallback, useEffect, useState } from "react";
 
 import { getCurrentUser, login as loginRequest, registerDevice } from "@/data/remote/identity";
