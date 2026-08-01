@@ -2,6 +2,7 @@ import { useRouter } from "expo-router";
 import { useState } from "react";
 import { Button, Text, TextInput, View } from "react-native";
 
+import { ApiError } from "@/data/remote/httpClient";
 import { useAuth } from "@/features/auth/useAuth";
 
 export default function LoginScreen() {
@@ -18,8 +19,14 @@ export default function LoginScreen() {
     try {
       await login(email, password);
       router.replace("/(app)");
-    } catch {
-      setError("Invalid email or password.");
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        setError("Invalid email or password.");
+      } else if (error instanceof TypeError) {
+        setError("Could not connect to the server. Please check your connection.");
+      } else {
+        setError("Something went wrong. Please try again.");
+      }
     } finally {
       setIsSubmitting(false);
     }
