@@ -1,6 +1,6 @@
 import { act, renderHook, waitFor } from "@testing-library/react-native";
 import type { ReactNode } from "react";
-import * as SecureStore from "expo-secure-store";
+import * as SecureStore from "@/shared/secureStorage";
 
 import { ApiError } from "@/data/remote/httpClient";
 import * as identity from "@/data/remote/identity";
@@ -8,7 +8,7 @@ import * as identity from "@/data/remote/identity";
 import { AuthProvider } from "./AuthContext";
 import { useAuth } from "./useAuth";
 
-jest.mock("expo-secure-store", () => ({
+jest.mock("@/shared/secureStorage", () => ({
   getItemAsync: jest.fn(),
   setItemAsync: jest.fn(),
   deleteItemAsync: jest.fn(),
