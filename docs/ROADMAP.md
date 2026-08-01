@@ -111,7 +111,7 @@ módulo `sync` pueda distinguir dispositivos.
 
 ---
 
-## Fase 4 — Training (módulo de referencia) ⏳
+## Fase 4 — Training (módulo de referencia) ✅
 
 **Objetivo**: implementar `training` (running, ciclismo, gimnasio) como
 módulo de referencia completo — sirve de plantilla para el resto de
@@ -120,9 +120,19 @@ bounded contexts de negocio.
 **Criterios de finalización**
 - Registro y consulta de actividades end-to-end: dominio, persistencia,
   API y una pantalla real en la app móvil (lista + detalle de actividad).
+  **Backend y cliente móvil implementados; validados manualmente en
+  Expo Web** (registro, login, persistencia de sesión, logout,
+  navegación, listado, detalle, distinción de error de red vs.
+  credenciales inválidas — dos bugs reales encontrados y corregidos en
+  esa validación: CORS y el mensaje de error de login). **Validación en
+  iOS/Android nativo (simulador o dispositivo real) sigue pendiente** —
+  ver `DECISIONS.md` y `PROJECT_STATE.md` para el detalle completo.
 - Eventos de dominio relevantes (p. ej. `ActivityRecorded`) publicados vía
-  outbox.
+  outbox. **Verificado con test end-to-end explícito** (mismo patrón que
+  `identity`).
 - Documentado como plantilla de referencia para las Fases 6 y 7.
+  **Completado** (`training/README.md` reescrito, `DECISIONS.md`
+  actualizado).
 
 **Dependencias**: Fase 3 (requiere usuario propietario de la actividad).
 

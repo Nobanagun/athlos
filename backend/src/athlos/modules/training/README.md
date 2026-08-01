@@ -72,7 +72,19 @@ soporta. Ver `docs/DECISIONS.md` (incremento 6) para el detalle.
 ## Estado y pendientes
 
 Backend y cliente móvil verificados con tests automatizados (152 +
-16). **Sin validar todavía en un simulador o dispositivo real** — la
-única verificación manual pendiente antes de dar la Fase 4 por
-cerrada. Persistencia local offline y sincronización quedan fuera de
-alcance de este módulo (Fase 5, módulo `sync`).
+16), y con validación manual end-to-end completada en **Expo Web**
+(registro, login, persistencia de sesión, logout, navegación, listado,
+detalle, estados de carga/error/vacío) contra el backend real. Esa
+validación encontró y corrigió tres bugs reales fuera del propio
+módulo `training` — CORS (`api/main.py`/`config/settings.py`),
+`expo-secure-store` sin implementación en Web
+(`src/shared/secureStorage.ts`/`.web.ts`) y un mensaje de error de
+login incorrecto ante fallo de red (`app/(auth)/login.tsx`) — ver
+`docs/DECISIONS.md` (2026-08-01) para el detalle de cada uno.
+
+**Sin validar todavía en un simulador o dispositivo iOS/Android real**
+— la única verificación manual pendiente antes de dar la Fase 4 por
+cerrada; no ejecutable en la máquina de desarrollo actual (sin Xcode
+completo, solo Command Line Tools). Persistencia local offline y
+sincronización quedan fuera de alcance de este módulo (Fase 5, módulo
+`sync`).

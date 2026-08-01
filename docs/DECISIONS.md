@@ -1101,3 +1101,159 @@ entorno de desarrollo, sigue sin confirmarse que la app arranca y
 navega correctamente fuera del build estático (`expo export`).
 Persistencia local offline y sincronización quedan fuera de alcance,
 Fase 5.
+
+---
+
+## 2026-08-01 — CORS: `CORSMiddleware` opt-in por origen, nunca `"*"`
+
+**Contexto**: durante la validación manual de la Fase 4, `expo start
+--web` (necesario porque el simulador iOS no estaba disponible en la
+máquina de desarrollo) reveló un bug real: el navegador bloqueaba
+`POST /users` con "blocked by CORS policy". El backend no tenía
+ningún middleware de CORS — nunca había hecho falta hasta ahora,
+porque el único cliente hasta este punto era React Native nativo
+(iOS/Android), donde `fetch` no pasa por el modelo de origen/CORS del
+navegador; solo un cliente que corre dentro de un navegador lo
+dispara.
+
+**Decisión**: `CORSMiddleware` de FastAPI, añadido condicionalmente
+solo si hay orígenes configurados. Nueva función
+`config.settings.get_cors_allowed_origins()` (mismo idioma que
+`get_database_url()`/`get_jwt_secret()`: lee de `os.environ`), pero
+con una diferencia deliberada — **no lanza si falta**, devuelve lista
+vacía. `DATABASE_URL`/`JWT_SECRET` son requisitos duros porque la app
+no puede arrancar sin ellos; `CORS_ALLOWED_ORIGINS` no tiene ese
+mismo estatus — su ausencia es el caso normal en producción (tráfico
+nativo) y en cualquier entorno de desarrollo que no use el build web.
+`api/main.py` solo registra el middleware si la lista no está vacía;
+sin orígenes configurados, no hay `CORSMiddleware` en absoluto (no un
+middleware que rechace todo).
+
+**Nunca `allow_origins=["*"]`**: un comodín en origen permitiría que
+cualquier sitio web hiciera peticiones autenticadas (con el JWT del
+usuario) a la API desde el navegador de la víctima. La lista es
+explícita, por variable de entorno, nunca hardcodeada en el código.
+`allow_methods`/`allow_headers` también explícitos (`GET`, `POST`,
+`DELETE`; `Content-Type`, `Authorization`) en vez de `"*"` — son los
+únicos que la API usa hoy; ampliar la lista es una línea, no un riesgo
+oculto de aceptar cualquier método/cabecera futura sin darse cuenta.
+
+**`backend/.env.example`** documenta la variable (comentada, sin valor
+real) con el mismo formato que `DATABASE_URL`/`JWT_SECRET`:
+`CORS_ALLOWED_ORIGINS=http://localhost:8081` como ejemplo de desarrollo
+para el build web de Expo.
+
+**Preparado para producción, no solo para esta validación**: la
+decisión no es "CORS temporal para probar Fase 4" — es la forma en que
+cualquier cliente futuro basado en navegador (el dashboard Next.js
+planeado, ver entrada de 2026-07-19) tendrá que configurarse: su
+dominio real se añade a `CORS_ALLOWED_ORIGINS` en el entorno
+correspondiente, sin tocar código.
+
+**Consecuencias**: `backend/src/athlos/config/settings.py` gana
+`get_cors_allowed_origins()`; `backend/src/athlos/api/main.py` importa
+`CORSMiddleware` y la registra condicionalmente antes de incluir los
+routers de módulo. Ningún cambio en `identity`/`training` — la
+decisión vive enteramente en la composition root y en `config/`,
+coherente con que ningún módulo de negocio conoce detalles de
+transporte HTTP ajenos a sus propias rutas.
+
+---
+
+## 2026-08-01 — Bug real: `expo-secure-store` no tiene implementación en Web
+
+**Contexto**: segundo bug real encontrado durante la misma validación
+manual (Expo Web, necesario porque el simulador iOS no estaba
+disponible en la máquina de desarrollo). Al arrancar, el navegador
+lanzaba `ExpoSecureStore.default.getValueWithKeyAsync is not a
+function` en `src/shared/deviceId.ts`. Verificado en el código fuente
+del paquete instalado (`expo-secure-store@57.0.1`):
+`ExpoSecureStore.web.ts` es literalmente `export default {};` — un
+stub vacío deliberado, porque no existe backend de keychain en un
+navegador.
+
+**Decisión**: aprovechar la resolución de extensiones específicas de
+plataforma de Metro (`.web.ts` antes que `.ts` al compilar para web) en
+vez de introducir ramas `Platform.OS` en el código de negocio.
+`src/shared/secureStorage.ts` (nuevo) envuelve `expo-secure-store` sin
+cambios de comportamiento para iOS/Android;
+`src/shared/secureStorage.web.ts` (nuevo) implementa el mismo contrato
+(`getItemAsync`/`setItemAsync`/`deleteItemAsync`) con
+`window.localStorage`. `deviceId.ts` y `AuthContext.tsx` cambian su
+import de `expo-secure-store` a `./secureStorage`/`@/shared/secureStorage`
+— ninguna otra línea de esos archivos cambia, porque la API es
+idéntica. El resto de la aplicación no conoce la diferencia.
+
+**`localStorage` sin cifrar en Web — aceptado deliberadamente**: Web no
+es todavía una plataforma de producción soportada (`app.json` solo
+declara `ios`/`android`; se añadió `web` de forma temporal solo para
+esta validación y se revierte al cerrarla). Si Web se soporta en serio
+en el futuro, esta decisión debe revisarse.
+
+**Verificado a nivel de bundle, no solo de código fuente**: tras el
+fix, se inspeccionó el JS servido por Metro para `platform=web` (4MB) y
+se confirmó que Metro seleccionó `secureStorage.web.ts` (su comentario
+aparece en el bundle) y no `secureStorage.ts` (el comentario nativo no
+aparece); la única aparición de `getValueWithKeyAsync` en todo el
+bundle es dentro del propio comentario explicativo del bug, no en
+código alcanzable.
+
+**Consecuencias**: `tsc --noEmit`, `eslint` y los 16 tests del móvil
+siguen en verde (`AuthContext.test.tsx` actualizado: el mock pasa de
+`"expo-secure-store"` a `"@/shared/secureStorage"`, mismo motivo que el
+cambio de import). `package.json`/`package-lock.json` ganan
+`react-native-web@^0.21.2` (necesario para que Expo Web arrancara en
+absoluto, bug previo e independiente de este). **Sin test dedicado
+para `secureStorage.ts`/`secureStorage.web.ts`** — cubiertos solo
+indirectamente vía el mock de `AuthContext.test.tsx`, pendiente si se
+justifica más adelante.
+
+---
+
+## 2026-08-01 — Bug real: error de red en login mostraba "Invalid email or password."
+
+**Contexto**: tercer bug real de la misma validación manual, esta vez
+provocado deliberadamente (backend detenido a propósito para probar el
+estado de error de `Activities`). Al fallar el login por servidor
+inaccesible, la pantalla mostraba "Invalid email or password." — un
+mensaje incorrecto que confunde un fallo de red con credenciales
+inválidas.
+
+**Causa raíz**: `app/(auth)/login.tsx` capturaba cualquier excepción de
+`login()` con un único `catch` sin inspeccionar el error, y siempre
+mostraba el mismo mensaje fijo. La distinción ya existía en el código
+(`httpClient.ts` define `ApiError` y `isNetworkOrApiError()` —
+`error instanceof ApiError || error instanceof TypeError` — ya usada
+por `AuthContext.tsx` para decidir si tolerar un fallo de
+`registerDevice`), pero `login.tsx` no la aplicaba.
+
+**Decisión**: `login.tsx` distingue explícitamente tres casos en el
+`catch`, reutilizando `ApiError` (no una abstracción nueva): `401` real
+→ "Invalid email or password."; `TypeError` (fallo de red, mismo
+criterio ya usado en `httpClient.ts`) → "Could not connect to the
+server. Please check your connection."; cualquier otro error → mensaje
+genérico controlado ("Something went wrong. Please try again."), en vez
+de dejarlo sin capturar o etiquetarlo también como credenciales
+inválidas.
+
+**Alcance deliberadamente acotado**: `register.tsx` tiene el mismo
+patrón de `catch` ciego (mensaje distinto) pero **no se toca en esta
+corrección** — mismo bug, pero un cambio explícitamente pedido solo
+para login. Tampoco se añade manejo de timeout: `httpClient.request()`
+no tiene ningún mecanismo de timeout (`AbortController` o similar) en
+ningún endpoint de la app — no es un defecto de esta pantalla, es una
+ausencia en la infraestructura HTTP compartida, y ampliarla queda
+fuera de esta corrección puntual hasta que se decida explícitamente
+como su propio incremento.
+
+**Verificado manualmente, no solo con tests**: con el backend detenido
+a propósito, la app vuelve a la pantalla de login sin pantalla en
+blanco y muestra "Could not connect to the server. Please check your
+connection." — confirmado por captura antes de dar el fix por válido.
+
+**Consecuencias**: `tsc --noEmit`, `eslint`, los 16 tests del móvil y
+`expo export --platform ios` (1124 módulos) siguen en verde. **Sin
+test automático nuevo para este caso** (network error / 401 / error
+inesperado distinguidos en login) — la validación fue manual;
+pendiente si se justifica un test de integración de la pantalla más
+adelante.

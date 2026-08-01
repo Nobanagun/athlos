@@ -1,6 +1,6 @@
 # Project State
 
-> Última actualización: 2026-07-25
+> Última actualización: 2026-08-01
 > Este documento es la fuente de verdad sobre el estado real del proyecto.
 > Debe actualizarse cada vez que cambie algo significativo (stack, estructura,
 > fase actual). Si este documento contradice el código, el código manda —
@@ -52,17 +52,50 @@ detalle de actividades). De los tres criterios de finalización de
 `ActivityRecorded` vía outbox ya están **verificados con tests**
 (incluido un test end-to-end del outbox, mismo patrón que `identity`);
 la documentación como plantilla de referencia se cierra con esta misma
-actualización. **Bloqueo real restante, no técnico**: la pantalla de
-actividades nunca se ha ejecutado en un simulador o dispositivo real —
-solo se ha verificado que compila, tipa y empaqueta (`expo export`).
-Ver `DECISIONS.md` (entradas de Fase 4, incrementos 1-5 y 6) para el
-detalle completo de decisiones.
+actualización.
+
+**Validación manual completada — en Expo Web, no en iOS/Android
+nativo**. El simulador iOS no está disponible en la máquina de
+desarrollo (solo Command Line Tools, sin Xcode completo); se validó en
+su lugar levantando backend + Expo con `--web` (`app.json` gana `web`
+en `platforms` **solo de forma temporal**, revertido al cerrar la
+validación). Checklist verificado end-to-end contra el backend real:
+registro, login, persistencia de sesión tras recargar, logout, login
+posterior, navegación `(auth)`↔`(app)`, listado de actividades (vacío y
+con datos creados vía API), apertura de detalle, y el estado de error
+de `Activities` con el backend detenido a propósito. **Tres bugs reales
+encontrados y corregidos durante esta validación** (ver `DECISIONS.md`,
+entradas del 2026-08-01):
+1. **CORS**: sin `CORSMiddleware`, el navegador bloqueaba `POST
+   /users` — nunca hacía falta antes porque el único cliente era
+   React Native nativo, sin modelo de origen de navegador.
+   `CORSMiddleware` ahora se registra condicionalmente, solo con
+   orígenes explícitos por variable de entorno, nunca `"*"`.
+2. **`expo-secure-store` sin implementación en Web** —
+   `src/shared/secureStorage.ts`/`secureStorage.web.ts` (nuevos)
+   resuelven la plataforma vía Metro, sin ramas `Platform.OS` en el
+   código de negocio; iOS/Android siguen usando `expo-secure-store` sin
+   cambios.
+3. **Mensaje de error de login incorrecto ante fallo de red** —
+   `login.tsx` mostraba "Invalid email or password." también cuando el
+   servidor era inaccesible; ahora distingue `401` real, `TypeError`
+   (red) y error inesperado.
+
+**Bloqueo real restante antes del cierre formal, no ya de CORS/storage/
+mensaje de error (resueltos)**: validación en iOS/Android — simulador
+o dispositivo real — sigue sin ejecutarse. Ver `DECISIONS.md` (entradas
+de Fase 4, incrementos 1-5 y 6, y las tres entradas del 2026-08-01) para
+el detalle completo de decisiones.
 
 **152 tests en total en el backend, todos en verde** (112 de
-`identity`/`platform` + 40 de `training`). En el móvil: 16 tests
-(`httpClient`, `AuthContext`, cliente de `training`), `tsc --noEmit` y
-`eslint` limpios, `expo export --platform ios` genera un bundle real de
-1123 módulos sin errores.
+`identity`/`platform` + 40 de `training`) — **sin test automático para
+el middleware de CORS**, verificado solo manualmente
+(`curl`, preflight `OPTIONS` incluido). En el móvil: 16 tests
+(`httpClient`, `AuthContext`, cliente de `training`) — **sin test
+dedicado para `secureStorage.ts`/`secureStorage.web.ts` ni para la
+distinción de errores en `login.tsx`**, ambos verificados solo
+manualmente; `tsc --noEmit` y `eslint` limpios, `expo export
+--platform ios` genera un bundle real de 1124 módulos sin errores.
 
 Ver [`ROADMAP.md`](ROADMAP.md) para las fases siguientes y
 [`docs/agent/OPEN_QUESTIONS.md`](agent/OPEN_QUESTIONS.md) para
@@ -73,7 +106,7 @@ limitaciones conocidas (protección de rama pendiente de GitHub Pro).
 | Área | Tecnología | Estado |
 |---|---|---|
 | Backend | Python 3.13 + FastAPI 0.139.2 (uv) | Dependencias instaladas y fijadas, sin lógica de negocio |
-| Frontend móvil (principal) | React Native + Expo + TypeScript + Expo Router | Bootstrap real hecho (auth JWT, cliente de `training` de solo lectura) — en rama, pendiente de merge y validación manual en simulador |
+| Frontend móvil (principal) | React Native + Expo + TypeScript + Expo Router | Bootstrap real hecho (auth JWT, cliente de `training` de solo lectura) — en rama, pendiente de merge; validado manualmente en Expo Web, iOS/Android nativo pendiente |
 | Frontend web (dashboard/admin) | Next.js + TypeScript | Elegido, **no implementado**, fase futura |
 | Persistencia local (mobile, offline-first) | Por decidir (SQLite / WatermelonDB / Realm) | Pendiente |
 | Base de datos backend | Por decidir (candidata: PostgreSQL) | Pendiente |
@@ -202,8 +235,11 @@ athlos/
   agnóstico de negocio):
   `get_session()`/`get_unit_of_work()`, con inicialización perezosa del
   engine (`functools.lru_cache`) para que importar el módulo nunca
-  requiera `DATABASE_URL`. `config/settings.py` (nuevo, mínimo): lee
-  `DATABASE_URL` de entorno, sin `pydantic-settings`.
+  requiera `DATABASE_URL`. `config/settings.py`: lee `DATABASE_URL` y
+  `JWT_SECRET` de entorno (sin `pydantic-settings`), y ahora también
+  `get_cors_allowed_origins()` — `CORSMiddleware` se registra en
+  `main.py` solo si hay orígenes configurados, nunca `"*"` (ver
+  `DECISIONS.md`, 2026-08-01).
 - Ruff, mypy (modo `strict`, sin excepciones) y pytest configurados en
   `pyproject.toml` y en verde; `pre-commit` instalado y validado contra
   un `git commit` real.
@@ -229,17 +265,28 @@ athlos/
 - **mobile/**: bootstrap real hecho (Expo instalado, `expo export`
   genera un bundle real sin errores) — **en rama, sin mergear a
   `main` todavía**. Expo Router con grupos `(auth)`/`(app)`;
-  `AuthContext` (`src/features/auth/`) con `SecureStore` (sin refresh
-  tokens — un `401` fuerza logout), vinculación de dispositivo tras
-  login (tolerante a fallos de red/HTTP, no bloquea el login). Cliente
-  de `training` de solo lectura: `src/domain/training.ts` (unión
-  discriminada por `sport`), `src/data/remote/training.ts` (mapea
-  DTO snake_case → dominio camelCase), pantallas
+  `AuthContext` (`src/features/auth/`) con almacenamiento seguro (sin
+  refresh tokens — un `401` fuerza logout), vinculación de dispositivo
+  tras login (tolerante a fallos de red/HTTP, no bloquea el login).
+  **Almacenamiento diferenciado por plataforma**:
+  `src/shared/secureStorage.ts` (iOS/Android, `expo-secure-store`) y
+  `secureStorage.web.ts` (Web, `localStorage` sin cifrar — Web no es
+  plataforma de producción soportada todavía), resueltos por Metro sin
+  ramas `Platform.OS` en el código de negocio (ver `DECISIONS.md`,
+  2026-08-01). **`login.tsx` distingue credenciales inválidas (`401`)
+  de fallo de red (`TypeError`) de error inesperado**, en vez de un
+  único mensaje genérico (mismo `DECISIONS.md`). Cliente de `training`
+  de solo lectura: `src/domain/training.ts` (unión discriminada por
+  `sport`), `src/data/remote/training.ts` (mapea DTO snake_case →
+  dominio camelCase), pantallas
   `app/(app)/activities/{index,[sport]/[id]}.tsx` (lista + detalle,
   estado local de carga/error, sin hook compartido ni gestión de estado
-  global). 16 tests, `tsc`/`eslint` limpios. **Sin validar en un
-  simulador o dispositivo real** — pendiente, no ejecutable en este
-  entorno de desarrollo. Persistencia local (`data/local`) y
+  global). 16 tests, `tsc`/`eslint` limpios. **Validado manualmente en
+  Expo Web** (registro, login, persistencia de sesión, logout,
+  navegación, listado, detalle, estados de carga/error/vacío) contra el
+  backend real. **Sin validar todavía en un simulador o dispositivo
+  iOS/Android real** — pendiente, sin Xcode completo disponible en la
+  máquina de desarrollo actual. Persistencia local (`data/local`) y
   sincronización (`data/sync`) siguen sin implementar — motor por
   decidir, Fase 5.
 - **web/**: solo existe como carpeta reservada con un README explicando
@@ -263,18 +310,24 @@ athlos/
 de los tres criterios de finalización de `ROADMAP.md`, los dos
 verificables con tests ya lo están (actividades end-to-end,
 `ActivityRecorded` vía outbox) y la documentación como plantilla de
-referencia se cierra con esta actualización. **Queda un único bloqueo
-antes del cierre formal, y no es técnico**: validar manualmente que la
-app arranca y navega correctamente en un simulador o dispositivo real
-— no ejecutable en este entorno de desarrollo, requiere intervención
-directa.
+referencia se cierra con esta actualización. **Validación manual
+completada en Expo Web** contra el backend real (registro, login,
+persistencia de sesión, logout, navegación, listado, detalle, estados
+de carga/error/vacío), con tres bugs reales encontrados y corregidos en
+el proceso (CORS, `secureStorage` en Web, mensaje de error de login —
+ver `DECISIONS.md`, 2026-08-01). **Queda un único bloqueo antes del
+cierre formal**: validar en iOS/Android — simulador o dispositivo real
+— no ejecutable en la máquina de desarrollo actual (sin Xcode
+completo), requiere intervención directa.
 
 Sin relación de bloqueo con el cierre de la Fase 4, sigue pendiente:
 (1) mergear las ramas de `training` (backend y cliente móvil) y el
-bootstrap móvil a `main`; (2) el resto de la Fase 1 (CI, servicios
+bootstrap móvil a `main`; (2) tests automáticos para el middleware de
+CORS y para la distinción de errores en `login.tsx` (verificados solo
+manualmente hasta ahora); (3) el resto de la Fase 1 (CI, servicios
 Docker reales) y, con Postgres real disponible, generar la primera
 migración real y re-validar outbox + restricciones `UNIQUE`
-(`users.email`, `devices(device_id, user_id)`) contra él; (3)
+(`users.email`, `devices(device_id, user_id)`) contra él; (4)
 traducción de `IntegrityError` por condición de carrera en `identity`,
 deliberadamente fuera de alcance hasta ahora (ver `DECISIONS.md`). Ver
 `ROADMAP.md`.
